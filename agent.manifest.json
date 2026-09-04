@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1",
+  "name": "agent-x",
+  "description": "",
+  "systemPromptIncludes": [],
+  "skillNames": [],
+  "contextGlobs": [],
+  "sopNames": [],
+  "subagentNames": [],
+  "mcpServers": {},
+  "tools": [],
+  "allowedTools": [],
+  "shellAllowedCommands": [],
+  "hooks": {},
+  "welcomeMessage": ""
+}
