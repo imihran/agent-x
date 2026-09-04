@@ -7,7 +7,12 @@
     "context/prompt/10-domain-template.md"
   ],
   "skillNames": [],
-  "contextGlobs": [],
+  "contextGlobs": [
+    "routing/*",
+    "guardrails/*",
+    "knowledge/*",
+    "conventions/*"
+  ],
   "sopNames": [],
   "subagentNames": [],
   "mcpServers": {},
