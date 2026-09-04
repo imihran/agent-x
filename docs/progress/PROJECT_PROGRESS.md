@@ -1,6 +1,6 @@
 # Agent X Project Progress
 
-Last updated: after README Section 20 Task 8.
+Last updated: after README Section 20 Task 10.
 
 ## Current goal
 
@@ -12,7 +12,7 @@ Build the Agent Capability Package from the README rebuild specification. This i
 - Remote: `https://github.com/imihran/agent-x`
 - Working branch: `build/rebuild-spec-task-1`
 - Main spec: `README.md`
-- Current latest pushed commit: `380829e test: add wiring loop acceptance coverage`
+- Current latest pushed commit: `988fd92 feat: add anti-drift guard validation`
 - All completed implementation steps have been committed and pushed to `origin/build/rebuild-spec-task-1`.
 
 ## User instructions / operating rules
@@ -79,16 +79,34 @@ Commit: `380829e test: add wiring loop acceptance coverage`
 
 Added tests that create a zero-wiring skill, fix one attachment point at a time, and prove validator messages progress to PASS.
 
+### Task 9 — Toolkit CLI
+
+Commit: `751683a feat: add toolkit cli contract`
+
+Implemented `tool/toolkit/toolkit.py`, `tool/toolkit/README.md`, and toolkit contract tests covering JSON success/error, exit codes, retryable/hint errors, read-back write verification, discover completeness, and read-only authcheck behavior.
+
+### Task 10 — Anti-drift guards
+
+Commit: `988fd92 feat: add anti-drift guard validation`
+
+Implemented `guards/check-tool-contract.py`, `guards/check-cli-references.py`, and discriminate tests proving the guards return 0 for agreement, 1 for drift, and 2 for unverifiable inputs. Also fixed one README prose collision where the CLI reference guard correctly treated `toolkit.py missing` as a bad command reference.
+
 ## Current verification status
 
 Latest verified after Task 8:
 
 ```text
 /tmp/agent-x-venv/bin/python -m pytest tests/ -q
-27 passed
+53 passed
 
 python3 context/scripts/validate-wiring.py --strict
 WIRING VALIDATION: PASS (all capabilities) — fully wired
+
+python3 guards/check-tool-contract.py
+TOOL CONTRACT: AGREE
+
+python3 guards/check-cli-references.py
+CLI REFERENCES: AGREE
 
 python3 build/assemble.py --target generic --out /tmp/agent-x-summary-assemble
 assembled successfully
@@ -104,14 +122,14 @@ System Python does not have pytest installed. Current test venv is `/tmp/agent-x
 
 ## Next task
 
-Proceed with README Section 20 Task 9 — Toolkit CLI.
+Proceed with README Section 20 Task 11 — Target adapters.
 
 Expected scope:
-- Implement `tool/toolkit/toolkit.py` from README Section 14.7.
-- Implement `tool/toolkit/README.md` with command/write table from README Section 14.8.
-- Add `tests/test_toolkit_contract.py` covering JSON success/error, exit codes, retryable/hint, read-back verification, discover completeness, authcheck read-only behavior.
-- Do not implement anti-drift guards, target adapters, SOPs, hooks, CI, or GitHub workflow yet.
-- After implementation, verify with pytest and validator strict, then commit and push.
+- Complete `build/assemble.py` for `claude-code`, `kiro`, and `generic` targets per README Section 13.2/13.3.
+- Kiro is the primary target; after Task 11, perform an initial Kiro artifact/layout validation.
+- Verify deterministic output across two runs.
+- Do not implement generic capabilities, optional layers, SOPs, hooks, CI, or GitHub workflow yet.
+- After implementation, verify with pytest, validator strict, both anti-drift guards, and assembler smoke for all targets, then commit and push.
 
 ## Suggested skills for next session
 
