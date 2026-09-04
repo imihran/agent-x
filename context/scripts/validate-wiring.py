@@ -13,10 +13,9 @@ and README-advertised agents #14. Task 3 scope adds the skill contract
 checks #1-#5 (every skills/<dir>/ has a valid, declared SKILL.md).
 Task 4 scope adds checks #15-16 (every systemPromptIncludes entry exists
 on disk and is sorted by numeric prefix; every on-disk context/prompt/*.md
-partial is included).
-Check #6 (routing mention) needs the routing tier and lands in Task 5.
-Later rebuild tasks add the remaining checks described in README.md
-Section 17.1.
+partial is included). Task 5 scope adds check #6: every declared skill must
+be routed or registered always-on and invoked from a prompt partial. Later
+rebuild tasks add the remaining checks described in README.md Section 17.1.
 
 Severities:
   ERROR  behavioral wiring — the capability will not load or will never be
@@ -115,6 +114,17 @@ def parse_frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
+def concat(paths: list[Path]) -> str:
+    return "\n".join(read(p) for p in paths)
+
+
+def mentions(text: str, name: str) -> bool:
+    """Whole-token mention: `name` must not be embedded in a longer
+    hyphenated identifier. Bare substring matching would let a skill named
+    `demo` count as routed merely because `demo-skill` appears."""
+    return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
+
+
 def check_skill_contract(manifest: dict, cfg: dict, only: str | None) -> None:
     """Checks #1-5: every skills/<dir>/ has a SKILL.md; its frontmatter
     has name + description; name is byte-identical to the directory name;
@@ -172,6 +182,30 @@ def check_declared_skills(manifest: dict, only: str | None) -> None:
         if skill not in on_disk:
             error(f"skillNames:{skill}",
                   f"declared in the manifest but skills/{skill}/ does not exist")
+
+
+def check_skill_routing(manifest: dict, cfg: dict, only: str | None) -> None:
+    """Check #6: a declared skill must be reachable. It is reachable when
+    mentioned in context/routing/*.md, or when registered in alwaysOnSkills
+    and invoked by a prompt partial. Allowlisted template skills are inert and
+    intentionally skipped."""
+    declared = set(manifest.get("skillNames", []))
+    always_on = set(cfg.get("alwaysOnSkills", []))
+    undeclared_ok = set(cfg.get("undeclaredSkillAllowlist", {}))
+    routing_text = concat(sorted(ROUTING_DIR.glob("*.md")))
+    prompt_text = concat(sorted(PROMPT_DIR.glob("*.md")))
+
+    for skill in sorted(declared - undeclared_ok):
+        if only and skill != only:
+            continue
+        if skill in always_on:
+            if not mentions(prompt_text, skill):
+                error(f"skills/{skill}",
+                      "always-on skill but no prompt partial invokes it — "
+                      "it will never activate")
+        elif not mentions(routing_text, skill):
+            error(f"skills/{skill}",
+                  "no mention in context/routing/*.md — nothing will ever route to it")
 
 
 def check_declared_sops(manifest: dict, only: str | None) -> None:
@@ -267,6 +301,7 @@ def main() -> int:
 
     check_skill_contract(manifest, cfg, args.skill)
     check_declared_skills(manifest, args.skill)
+    check_skill_routing(manifest, cfg, args.skill)
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
     check_prompt_includes(manifest, args.skill)

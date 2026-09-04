@@ -8,21 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "context" / "scripts" / "validate-wiring.py"
 
 
-def run_validator(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, str(VALIDATOR), *args],
-        capture_output=True,
-        text=True,
-    )
-
-
-def test_empty_package_fails_on_missing_routing_core():
-    result = run_validator()
-    assert result.returncode == 1
-    assert "routing/00-core.md" in result.stdout
-    assert "WIRING VALIDATION: FAIL" in result.stdout
-
-
 def copy_package(tmp_path: Path) -> Path:
     """A private copy of the package so a test's manifest/README edits
     never touch the real working tree."""
@@ -45,6 +30,24 @@ def set_manifest(pkg_root: Path, **fields) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest.update(fields)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def set_wiring_config(pkg_root: Path, **fields) -> None:
+    config_path = pkg_root / "wiring.config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config.update(fields)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_missing_routing_core_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    (pkg / "context" / "routing" / "00-core.md").unlink()
+
+    result = run_validator_at(pkg)
+
+    assert result.returncode == 1
+    assert "routing/00-core.md" in result.stdout
+    assert "WIRING VALIDATION: FAIL" in result.stdout
 
 
 def skill_md(name: str, description: str) -> str:
@@ -141,6 +144,9 @@ def test_skill_short_description_warns(tmp_path):
     pkg = copy_package(tmp_path)
     write_skill(pkg, "short-desc", skill_md("short-desc", "Too short."))
     set_manifest(pkg, skillNames=["short-desc"])
+    (pkg / "context" / "routing" / "10-domain-template.md").write_text(
+        '| "short" | `short-desc` |\n', encoding="utf-8"
+    )
 
     result = run_validator_at(pkg, "--skill", "short-desc")
 
@@ -218,3 +224,82 @@ def test_example_skill_passes_via_allowlist(tmp_path):
     assert "skills/example-skill" not in result.stdout
     assert "WIRING VALIDATION: PASS" in result.stdout
     assert result.returncode == 0
+
+
+def test_declared_skill_without_routing_mention_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    write_skill(
+        pkg, "unrouted-skill",
+        skill_md("unrouted-skill",
+                  "A declared skill that has no routing row yet and must fail."),
+    )
+    set_manifest(pkg, skillNames=["unrouted-skill"])
+
+    result = run_validator_at(pkg, "--skill", "unrouted-skill")
+
+    assert "ERROR skills/unrouted-skill" in result.stdout
+    assert "nothing will ever route to it" in result.stdout
+    assert result.returncode == 1
+
+
+def test_declared_skill_with_routing_mention_passes_check_6(tmp_path):
+    pkg = copy_package(tmp_path)
+    write_skill(
+        pkg, "routed-skill",
+        skill_md("routed-skill",
+                  "A declared skill that is mentioned in a routing row and is reachable."),
+    )
+    set_manifest(pkg, skillNames=["routed-skill"])
+    (pkg / "context" / "routing" / "10-domain-template.md").write_text(
+        '| User signal / intent | Activate skill |\n'
+        '|---|---|\n'
+        '| "route me" | `routed-skill` |\n',
+        encoding="utf-8",
+    )
+
+    result = run_validator_at(pkg, "--skill", "routed-skill")
+
+    assert "nothing will ever route" not in result.stdout
+    assert "WIRING VALIDATION: PASS" in result.stdout
+    assert result.returncode == 0
+
+
+def test_always_on_skill_with_prompt_invocation_does_not_need_routing(tmp_path):
+    pkg = copy_package(tmp_path)
+    write_skill(
+        pkg, "startup-skill",
+        skill_md("startup-skill",
+                  "A declared always-on skill invoked by a prompt partial at startup."),
+    )
+    set_manifest(pkg, skillNames=["startup-skill"])
+    set_wiring_config(pkg, alwaysOnSkills=["startup-skill"])
+    write_prompt_partial(pkg, "20-startup.md", "# Startup\n\nInvoke startup-skill.\n")
+    set_manifest(pkg, systemPromptIncludes=[
+        "context/prompt/00-identity.md",
+        "context/prompt/10-domain-template.md",
+        "context/prompt/20-startup.md",
+    ])
+
+    result = run_validator_at(pkg, "--skill", "startup-skill")
+
+    assert "nothing will ever route" not in result.stdout
+    assert "always-on skill but no prompt" not in result.stdout
+    assert "WIRING VALIDATION: PASS" in result.stdout
+    assert result.returncode == 0
+
+
+def test_always_on_skill_without_prompt_invocation_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    write_skill(
+        pkg, "silent-startup-skill",
+        skill_md("silent-startup-skill",
+                  "A declared always-on skill that is not invoked by any prompt partial."),
+    )
+    set_manifest(pkg, skillNames=["silent-startup-skill"])
+    set_wiring_config(pkg, alwaysOnSkills=["silent-startup-skill"])
+
+    result = run_validator_at(pkg, "--skill", "silent-startup-skill")
+
+    assert "ERROR skills/silent-startup-skill" in result.stdout
+    assert "always-on skill but no prompt partial invokes it" in result.stdout
+    assert result.returncode == 1
