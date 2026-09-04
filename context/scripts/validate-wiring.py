@@ -6,9 +6,11 @@ attached at several points before an agent will load and route to it. This
 script asserts those attachments exist, so a half-wired capability fails
 loudly instead of sitting inert.
 
-Task 1 scope only: manifest/config loading, the exit-2 structural floor
-(no skills/ directory), and check #17 (missing routing/00-core.md). Later
-rebuild tasks add the remaining checks described in README.md Section 17.1.
+Task 1 scope: manifest/config loading, the exit-2 structural floor
+(no skills/ directory), and check #17 (missing routing/00-core.md).
+Task 2 scope adds the declared-but-missing checks: skills #7, SOPs #11,
+and README-advertised agents #14. Later rebuild tasks add the remaining
+checks described in README.md Section 17.1.
 
 Severities:
   ERROR  behavioral wiring — the capability will not load or will never be
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,14 +35,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SKILLS_DIR = ROOT / "skills"
 ROUTING_DIR = ROOT / "context" / "routing"
+SOPS_DIR = ROOT / "sops"
+AGENTS_DIR = ROOT / "agents"
 MANIFEST = ROOT / "agent.manifest.json"
 WIRING_CONFIG = ROOT / "wiring.config.json"
+README = ROOT / "README.md"
 
 findings: list[tuple[str, str, str]] = []  # (severity, subject, message)
 
 
 def error(subject: str, message: str) -> None:
     findings.append(("ERROR", subject, message))
+
+
+def warn(subject: str, message: str) -> None:
+    findings.append(("WARN", subject, message))
 
 
 def read(path: Path) -> str:
@@ -61,6 +71,69 @@ def load_json(path: Path) -> dict | None:
     except json.JSONDecodeError as exc:
         error(path.name, f"invalid JSON: {exc}")
         return None
+
+
+_readme_memo: list[str | None] = []
+
+
+def readme_text_or_none() -> str | None:
+    """README-dependent checks are documentation-axis (WARN tier). A
+    missing README is reported ONCE as drift — the rebuild sequence
+    legitimately runs the validator before the README task — and each
+    dependent check is skipped, not fired vacuously against empty text."""
+    if not _readme_memo:
+        if README.is_file():
+            _readme_memo.append(read(README))
+        else:
+            warn("README.md", "missing — README documentation checks skipped")
+            _readme_memo.append(None)
+    return _readme_memo[0]
+
+
+def check_declared_skills(manifest: dict, only: str | None) -> None:
+    """Check #7: a skill declared in manifest skillNames must exist on
+    disk — a typo or a deleted directory otherwise points at nothing."""
+    declared = set(manifest.get("skillNames", []))
+    on_disk = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()} \
+        if SKILLS_DIR.is_dir() else set()
+    for skill in sorted(declared):
+        if only and skill != only:
+            continue
+        if skill not in on_disk:
+            error(f"skillNames:{skill}",
+                  f"declared in the manifest but skills/{skill}/ does not exist")
+
+
+def check_declared_sops(manifest: dict, only: str | None) -> None:
+    """Check #11: a SOP declared in manifest sopNames must exist on disk."""
+    if only:
+        return
+    declared = set(manifest.get("sopNames", []))
+    on_disk = {p.name.removesuffix(".sop.md") for p in SOPS_DIR.glob("*.sop.md")} \
+        if SOPS_DIR.is_dir() else set()
+    for sop in sorted(declared - on_disk):
+        error(f"sopNames:{sop}",
+              f"declared in the manifest but sops/{sop}.sop.md does not exist")
+
+
+def check_readme_agents(manifest: dict, only: str | None) -> None:
+    """Check #14: every agent name the README advertises must have a
+    manifest on disk — either this package's own manifest or a subagent
+    under agents/*.agent.json."""
+    if only:
+        return
+    readme_text = readme_text_or_none()
+    if readme_text is None:
+        return
+    known = {manifest.get("name", "")}
+    if AGENTS_DIR.is_dir():
+        for p in AGENTS_DIR.glob("*.agent.json"):
+            known.add((load_json(p) or {}).get("name", p.stem))
+    for m in re.finditer(r"run the agent[: ]+`([a-z0-9-]+)`", readme_text):
+        name = m.group(1)
+        if name not in known:
+            error(f"README:{name}",
+                  "README advertises an agent with no manifest on disk")
 
 
 def check_routing_core(only: str | None) -> None:
@@ -93,6 +166,9 @@ def main() -> int:
         manifest = {}
     load_json(WIRING_CONFIG)  # validated for well-formedness only in Task 1
 
+    check_declared_skills(manifest, args.skill)
+    check_declared_sops(manifest, args.skill)
+    check_readme_agents(manifest, args.skill)
     check_routing_core(args.skill)
 
     errors = [f for f in findings if f[0] == "ERROR"]
