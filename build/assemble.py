@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""Assemble the agent package's system prompt from its manifest.
-
-Task 4 scope: load the manifest and resolve systemPromptIncludes in listed
-order into one assembled prompt. Task 7 scope adds contextGlobs expansion for
-the generic target: routing/guardrails/knowledge/conventions files are
-expanded relative to context/, sorted, and appended to system-prompt.txt with
-source comments — with a hard error if any pattern matches context/prompt/
-(prompt partials load via systemPromptIncludes ONLY; matching them here would
-load them twice). Skill/SOP copying, hooks, MCP config, and the full per-host
-target layouts (claude-code, kiro) land in Task 11 (README.md Section 13.3).
+"""Assemble the agent package into per-host artifacts.
 
 Usage:
-    python3 build/assemble.py [--target generic] [--out DIR]
+    python3 build/assemble.py --target claude-code|kiro|generic [--out DIR]
+
+Reads agent.manifest.json, resolves systemPromptIncludes in listed order,
+expands contextGlobs (erroring if any glob matches a prompt/ partial),
+copies declared skills and declared SOPs (skills and hooks cite SOPs by
+path), and emits the target's artifact layout under dist/<target>/.
 
 Stdlib only. Deterministic: same inputs, byte-identical outputs.
 """
@@ -19,14 +15,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = ROOT / "context"
-MANIFEST = ROOT / "agent.manifest.json"
+SKILLS = ROOT / "skills"
+SOPS = ROOT / "sops"
+HOOKS = ROOT / "hooks"
 
-TARGETS = {"generic"}
+TARGETS = ("claude-code", "kiro", "generic")
 
 
 def fail(msg: str) -> None:
@@ -35,10 +34,11 @@ def fail(msg: str) -> None:
 
 
 def load_manifest() -> dict:
-    if not MANIFEST.is_file():
+    path = ROOT / "agent.manifest.json"
+    if not path.is_file():
         fail("agent.manifest.json not found at package root")
     try:
-        return json.loads(MANIFEST.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         fail(f"agent.manifest.json is invalid JSON: {exc}")
     return {}
@@ -92,13 +92,106 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def copy_tree(src: Path, dst: Path) -> None:
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
+def declared_skill_dirs(manifest: dict) -> list[Path]:
+    dirs: list[Path] = []
+    for name in manifest.get("skillNames", []):
+        d = SKILLS / name
+        if not d.is_dir():
+            fail(f"skillNames entry has no directory: skills/{name}/")
+        dirs.append(d)
+    return dirs
+
+
+def declared_sop_files(manifest: dict) -> list[Path]:
+    files: list[Path] = []
+    for name in manifest.get("sopNames", []):
+        p = SOPS / f"{name}.sop.md"
+        if not p.is_file():
+            fail(f"sopNames entry has no file: sops/{name}.sop.md")
+        files.append(p)
+    return files
+
+
+def copy_sops(manifest: dict, out: Path) -> None:
+    """Copy declared SOPs into the target. Skills and hooks cite SOPs by
+    the relative path sops/<name>.sop.md — a target without them would
+    ship broken citations."""
+    for p in declared_sop_files(manifest):
+        write(out / "sops" / p.name, p.read_text(encoding="utf-8"))
+
+
+def emit_mcp(manifest: dict, path: Path) -> None:
+    write(path, json.dumps({"mcpServers": manifest.get("mcpServers", {})},
+                            indent=2, sort_keys=True) + "\n")
+
+
+def hook_files() -> list[Path]:
+    """Real hook files only — an empty hooks/ directory (as ships today)
+    must not produce a spurious hooks.json / hooks/ output."""
+    if not HOOKS.is_dir():
+        return []
+    return sorted(HOOKS.glob("*.hook.json"))
+
+
+def target_claude_code(manifest: dict, out: Path) -> None:
+    prompt = resolve_includes(manifest)
+    eager = eager_block(expand_context_globs(manifest))
+    write(out / "CLAUDE.md", prompt + "\n---\n\n" + eager)
+    for d in declared_skill_dirs(manifest):
+        copy_tree(d, out / ".claude" / "skills" / d.name)
+    copy_sops(manifest, out)
+    emit_mcp(manifest, out / ".mcp.json")
+    hooks = hook_files()
+    if hooks:
+        aggregated = [json.loads(p.read_text(encoding="utf-8")) for p in hooks]
+        write(out / "hooks.json", json.dumps(aggregated, indent=2) + "\n")
+
+
+def target_kiro(manifest: dict, out: Path) -> None:
+    write(out / "steering" / "00-system.md", resolve_includes(manifest))
+    for f in expand_context_globs(manifest):
+        rel = f.relative_to(CONTEXT)
+        write(out / "steering" / "-".join(rel.parts), f.read_text(encoding="utf-8"))
+    for d in declared_skill_dirs(manifest):
+        copy_tree(d, out / "skills" / d.name)
+    copy_sops(manifest, out)
+    emit_mcp(manifest, out / "mcp.json")
+    for p in hook_files():
+        write(out / "hooks" / (p.stem.replace(".hook", "") + ".kiro.hook"),
+              p.read_text(encoding="utf-8"))
+
+
 def target_generic(manifest: dict, out: Path) -> None:
     prompt = resolve_includes(manifest)
     eager = eager_block(expand_context_globs(manifest))
     write(out / "system-prompt.txt", prompt + "\n" + eager)
+    emit_mcp(manifest, out / "mcp.json")
+    lines = ["# Skills Catalog", ""]
+    for d in declared_skill_dirs(manifest):
+        text = (d / "SKILL.md").read_text(encoding="utf-8")
+        desc = ""
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            for line in text[3:end].splitlines():
+                if line.strip().startswith("description:"):
+                    desc = line.partition(":")[2].strip()
+        lines.append(f"- **{d.name}** — {desc}")
+        copy_tree(d, out / "skills" / d.name)
+    copy_sops(manifest, out)
+    write(out / "skills-catalog.md", "\n".join(lines) + "\n")
 
 
-TARGET_FUNCS = {"generic": target_generic}
+TARGET_FUNCS = {
+    "claude-code": target_claude_code,
+    "kiro": target_kiro,
+    "generic": target_generic,
+}
 
 
 def main() -> int:
@@ -109,6 +202,7 @@ def main() -> int:
 
     manifest = load_manifest()
     out = Path(args.out) if args.out else ROOT / "dist" / args.target
+    out.mkdir(parents=True, exist_ok=True)
     TARGET_FUNCS[args.target](manifest, out)
     print(f"assembled target={args.target} out={out}")
     return 0
