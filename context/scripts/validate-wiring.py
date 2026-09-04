@@ -14,8 +14,11 @@ checks #1-#5 (every skills/<dir>/ has a valid, declared SKILL.md).
 Task 4 scope adds checks #15-16 (every systemPromptIncludes entry exists
 on disk and is sorted by numeric prefix; every on-disk context/prompt/*.md
 partial is included). Task 5 scope adds check #6: every declared skill must
-be routed or registered always-on and invoked from a prompt partial. Later
-rebuild tasks add the remaining checks described in README.md Section 17.1.
+be routed or registered always-on and invoked from a prompt partial. Task 6
+scope adds checks #8-10: every guardrail on disk must be in the identity
+partial's always-in-effect list (#8, ERROR), cited from some partial, routing
+file, or skill (#9, WARN), and listed in README.md (#10, WARN). Later rebuild
+tasks add the remaining checks described in README.md Section 17.1.
 
 Severities:
   ERROR  behavioral wiring — the capability will not load or will never be
@@ -39,8 +42,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 SKILLS_DIR = ROOT / "skills"
+GUARDRAILS_DIR = ROOT / "context" / "guardrails"
 ROUTING_DIR = ROOT / "context" / "routing"
 PROMPT_DIR = ROOT / "context" / "prompt"
+IDENTITY_PARTIAL = PROMPT_DIR / "00-identity.md"
 SOPS_DIR = ROOT / "sops"
 AGENTS_DIR = ROOT / "agents"
 MANIFEST = ROOT / "agent.manifest.json"
@@ -208,6 +213,45 @@ def check_skill_routing(manifest: dict, cfg: dict, only: str | None) -> None:
                   "no mention in context/routing/*.md — nothing will ever route to it")
 
 
+def check_guardrails(cfg: dict, only: str | None) -> None:
+    """Checks #8-10: every guardrail on disk must be declared in the
+    identity partial's always-in-effect list (#8, ERROR — that list is the
+    single mandatory declaration); cited from some partial, routing file, or
+    skill (#9, WARN — it loads via glob regardless, but nothing points at it
+    from the point of use); and listed in README.md (#10, WARN —
+    documentation drift). guardrailReferenceAllowlist entries in
+    wiring.config.json skip all three checks for that guardrail."""
+    if only:
+        return
+    if not GUARDRAILS_DIR.is_dir():
+        error("context/guardrails",
+              "directory missing — every always-in-effect guardrail is "
+              "gone; a vacuous pass here would hide that")
+        return
+    identity_text = read(IDENTITY_PARTIAL)
+    citing_text = concat(
+        sorted(PROMPT_DIR.glob("*.md"))
+        + sorted(ROUTING_DIR.glob("*.md"))
+        + sorted(SKILLS_DIR.glob("*/SKILL.md")))
+    readme_text = readme_text_or_none()
+    exempt = set(cfg.get("guardrailReferenceAllowlist", {}))
+
+    for path in sorted(GUARDRAILS_DIR.glob("*.md")):
+        stem = path.stem
+        subject = f"guardrails/{stem}"
+        if stem in exempt:
+            continue
+        if not mentions(identity_text, stem):
+            error(subject, "not in the always-in-effect list in "
+                           "context/prompt/00-identity.md — the single "
+                           "mandatory declaration is missing")
+        if not mentions(citing_text, stem):
+            warn(subject, "not cited by any partial, routing file, or skill — "
+                          "loaded but never pointed at from the point of use")
+        if readme_text is not None and not mentions(readme_text, stem):
+            warn(subject, "not listed in README.md")
+
+
 def check_declared_sops(manifest: dict, only: str | None) -> None:
     """Check #11: a SOP declared in manifest sopNames must exist on disk."""
     if only:
@@ -302,6 +346,7 @@ def main() -> int:
     check_skill_contract(manifest, cfg, args.skill)
     check_declared_skills(manifest, args.skill)
     check_skill_routing(manifest, cfg, args.skill)
+    check_guardrails(cfg, args.skill)
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
     check_prompt_includes(manifest, args.skill)

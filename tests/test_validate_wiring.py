@@ -303,3 +303,63 @@ def test_always_on_skill_without_prompt_invocation_is_error(tmp_path):
     assert "ERROR skills/silent-startup-skill" in result.stdout
     assert "always-on skill but no prompt partial invokes it" in result.stdout
     assert result.returncode == 1
+
+
+def test_guardrail_removed_from_identity_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    identity_path = pkg / "context" / "prompt" / "00-identity.md"
+    text = identity_path.read_text(encoding="utf-8")
+    assert "context/guardrails/no-fabrication.md" in text
+    text = text.replace("  - `context/guardrails/no-fabrication.md`\n", "")
+    identity_path.write_text(text, encoding="utf-8")
+
+    result = run_validator_at(pkg)
+
+    assert "ERROR guardrails/no-fabrication" in result.stdout
+    assert "not in the always-in-effect list" in result.stdout
+    assert result.returncode == 1
+
+
+def test_guardrail_present_in_identity_passes(tmp_path):
+    pkg = copy_package(tmp_path)
+
+    result = run_validator_at(pkg)
+
+    assert "guardrails/no-fabrication" not in result.stdout
+    assert "guardrails/evidence-gate" not in result.stdout
+    assert "guardrails/confirm-before-execute" not in result.stdout
+    assert "guardrails/verify-before-assert" not in result.stdout
+    assert "guardrails/tool-surface-discipline" not in result.stdout
+    assert "guardrails/self-report-honesty" not in result.stdout
+    assert "guardrails/scope-boundaries" not in result.stdout
+    assert "WIRING VALIDATION: PASS" in result.stdout
+    assert result.returncode == 0
+
+
+def test_uncited_guardrail_warns(tmp_path):
+    pkg = copy_package(tmp_path)
+    (pkg / "context" / "guardrails" / "orphan-rule.md").write_text(
+        "# Orphan Rule\n\nApplies to nothing yet — not cited anywhere.\n",
+        encoding="utf-8",
+    )
+
+    result = run_validator_at(pkg)
+
+    assert "WARN  guardrails/orphan-rule" in result.stdout
+    assert "not cited" in result.stdout
+
+
+def test_guardrail_missing_from_readme_warns(tmp_path):
+    pkg = copy_package(tmp_path)
+    (pkg / "README.md").write_text(
+        "# Test Package\n\n"
+        "## Guardrails\n\n"
+        "evidence-gate, confirm-before-execute, verify-before-assert, "
+        "tool-surface-discipline, self-report-honesty, scope-boundaries\n",
+        encoding="utf-8",
+    )
+
+    result = run_validator_at(pkg)
+
+    assert "WARN  guardrails/no-fabrication" in result.stdout
+    assert "not listed in README.md" in result.stdout
