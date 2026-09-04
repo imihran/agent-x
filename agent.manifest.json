@@ -2,7 +2,10 @@
   "schemaVersion": "1",
   "name": "agent-x",
   "description": "",
-  "systemPromptIncludes": [],
+  "systemPromptIncludes": [
+    "context/prompt/00-identity.md",
+    "context/prompt/10-domain-template.md"
+  ],
   "skillNames": [],
   "contextGlobs": [],
   "sopNames": [],

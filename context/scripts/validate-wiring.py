@@ -11,6 +11,9 @@ Task 1 scope: manifest/config loading, the exit-2 structural floor
 Task 2 scope adds the declared-but-missing checks: skills #7, SOPs #11,
 and README-advertised agents #14. Task 3 scope adds the skill contract
 checks #1-#5 (every skills/<dir>/ has a valid, declared SKILL.md).
+Task 4 scope adds checks #15-16 (every systemPromptIncludes entry exists
+on disk and is sorted by numeric prefix; every on-disk context/prompt/*.md
+partial is included).
 Check #6 (routing mention) needs the routing tier and lands in Task 5.
 Later rebuild tasks add the remaining checks described in README.md
 Section 17.1.
@@ -38,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SKILLS_DIR = ROOT / "skills"
 ROUTING_DIR = ROOT / "context" / "routing"
+PROMPT_DIR = ROOT / "context" / "prompt"
 SOPS_DIR = ROOT / "sops"
 AGENTS_DIR = ROOT / "agents"
 MANIFEST = ROOT / "agent.manifest.json"
@@ -202,6 +206,35 @@ def check_readme_agents(manifest: dict, only: str | None) -> None:
                   "README advertises an agent with no manifest on disk")
 
 
+def check_prompt_includes(manifest: dict, only: str | None) -> None:
+    """Checks #15-16: every systemPromptIncludes entry must exist on disk
+    and the list must be sorted by numeric filename prefix (#15) — the
+    order IS the assembled prompt order; and every on-disk
+    context/prompt/*.md partial must appear in that list (#16) — partials
+    are in no glob, so an unincluded one never loads."""
+    if only:
+        return
+    includes = manifest.get("systemPromptIncludes", [])
+    for rel in includes:
+        if not (ROOT / rel).is_file():
+            error(f"systemPromptIncludes:{rel}",
+                  "listed in the manifest but missing on disk — "
+                  "assembly will hard-error")
+    prefixes = [int(m.group(1)) for rel in includes
+                if (m := re.match(r"(\d+)", Path(rel).name))]
+    if prefixes != sorted(prefixes):
+        error("systemPromptIncludes",
+              "not sorted by numeric prefix — assembled prompt order "
+              "would not match the documented order")
+    included = {Path(rel).name for rel in includes}
+    if PROMPT_DIR.is_dir():
+        for p in sorted(PROMPT_DIR.glob("*.md")):
+            if p.name not in included:
+                error(f"prompt/{p.name}",
+                      "partial on disk but not in systemPromptIncludes — "
+                      "partials are in no glob, so it will never load")
+
+
 def check_routing_core(only: str | None) -> None:
     """Check #17: routing/00-core.md is the sole dispatch authority."""
     if only:
@@ -236,6 +269,7 @@ def main() -> int:
     check_declared_skills(manifest, args.skill)
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
+    check_prompt_includes(manifest, args.skill)
     check_routing_core(args.skill)
 
     errors = [f for f in findings if f[0] == "ERROR"]

@@ -165,6 +165,51 @@ def test_skill_undeclared_and_not_allowlisted_is_error(tmp_path):
     assert result.returncode == 1
 
 
+def write_prompt_partial(pkg_root: Path, filename: str, content: str) -> None:
+    prompt_dir = pkg_root / "context" / "prompt"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    (prompt_dir / filename).write_text(content, encoding="utf-8")
+
+
+def test_missing_prompt_include_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, systemPromptIncludes=[
+        "context/prompt/00-identity.md",
+        "context/prompt/99-ghost.md",
+    ])
+
+    result = run_validator_at(pkg)
+
+    assert "ERROR systemPromptIncludes:context/prompt/99-ghost.md" in result.stdout
+    assert "missing on disk" in result.stdout
+    assert result.returncode == 1
+
+
+def test_unsorted_prompt_includes_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, systemPromptIncludes=[
+        "context/prompt/10-domain-template.md",
+        "context/prompt/00-identity.md",
+    ])
+
+    result = run_validator_at(pkg)
+
+    assert "ERROR systemPromptIncludes:" in result.stdout
+    assert "not sorted by numeric prefix" in result.stdout
+    assert result.returncode == 1
+
+
+def test_unincluded_prompt_partial_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    write_prompt_partial(pkg, "20-extra.md", "# Extra\n\nAn unincluded partial.\n")
+
+    result = run_validator_at(pkg)
+
+    assert "ERROR prompt/20-extra.md" in result.stdout
+    assert "not in systemPromptIncludes" in result.stdout
+    assert result.returncode == 1
+
+
 def test_example_skill_passes_via_allowlist(tmp_path):
     pkg = copy_package(tmp_path)
 
