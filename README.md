@@ -1966,7 +1966,7 @@ def main() -> int:
     toolkit_dir = Path(__file__).resolve().parents[2] / "tool" / "toolkit"
     if not (toolkit_dir / "toolkit.py").is_file():
         fact("toolkit_import", "ERROR",
-             f"toolkit.py missing at {toolkit_dir} — tool layer unavailable")
+             f"toolkit module missing at {toolkit_dir} — tool layer unavailable")
     else:
         probe = [sys.executable, "-c",
                  f"import sys; sys.path.insert(0, {str(toolkit_dir)!r}); "
