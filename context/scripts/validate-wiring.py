@@ -9,8 +9,11 @@ loudly instead of sitting inert.
 Task 1 scope: manifest/config loading, the exit-2 structural floor
 (no skills/ directory), and check #17 (missing routing/00-core.md).
 Task 2 scope adds the declared-but-missing checks: skills #7, SOPs #11,
-and README-advertised agents #14. Later rebuild tasks add the remaining
-checks described in README.md Section 17.1.
+and README-advertised agents #14. Task 3 scope adds the skill contract
+checks #1-#5 (every skills/<dir>/ has a valid, declared SKILL.md).
+Check #6 (routing mention) needs the routing tier and lands in Task 5.
+Later rebuild tasks add the remaining checks described in README.md
+Section 17.1.
 
 Severities:
   ERROR  behavioral wiring — the capability will not load or will never be
@@ -90,6 +93,69 @@ def readme_text_or_none() -> str | None:
     return _readme_memo[0]
 
 
+def parse_frontmatter(text: str) -> dict[str, str]:
+    """Minimal YAML frontmatter reader — flat `key: value` pairs only."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    fields: dict[str, str] = {}
+    for line in text[3:end].splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if ":" not in line or line.startswith((" ", "\t")):
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def check_skill_contract(manifest: dict, cfg: dict, only: str | None) -> None:
+    """Checks #1-5: every skills/<dir>/ has a SKILL.md; its frontmatter
+    has name + description; name is byte-identical to the directory name;
+    a short description warns; and the skill is declared in the manifest's
+    skillNames unless it is an intentionally undeclared template listed in
+    wiring.config.json's undeclaredSkillAllowlist. Check #6 (routing
+    mention) needs the routing tier and lands in Task 5."""
+    declared = set(manifest.get("skillNames", []))
+    undeclared_ok = set(cfg.get("undeclaredSkillAllowlist", {}))
+    on_disk = sorted(p.name for p in SKILLS_DIR.iterdir() if p.is_dir()) \
+        if SKILLS_DIR.is_dir() else []
+
+    for skill in on_disk:
+        if only and skill != only:
+            continue
+        subject = f"skills/{skill}"
+
+        if skill in undeclared_ok:
+            if not (SKILLS_DIR / skill / "SKILL.md").is_file():
+                warn(subject, "allowlisted template has no SKILL.md")
+            continue
+
+        skill_md = SKILLS_DIR / skill / "SKILL.md"
+        if not skill_md.is_file():
+            error(subject, "no SKILL.md — the directory will never load")
+            continue
+
+        fm = parse_frontmatter(read(skill_md))
+        if not fm or not fm.get("name") or not fm.get("description"):
+            error(subject, "SKILL.md frontmatter missing name and/or description")
+        else:
+            if fm.get("name") != skill:
+                error(subject,
+                      f"frontmatter name {fm.get('name')!r} != directory "
+                      f"name {skill!r} — activation looks up by name")
+            desc = fm.get("description", "")
+            if len(desc) < 40:
+                warn(subject, f"description is only {len(desc)} chars; "
+                              "too thin to route on reliably")
+
+        if skill not in declared:
+            error(subject, "not declared in manifest skillNames — "
+                           "it can never be activated")
+
+
 def check_declared_skills(manifest: dict, only: str | None) -> None:
     """Check #7: a skill declared in manifest skillNames must exist on
     disk — a typo or a deleted directory otherwise points at nothing."""
@@ -164,8 +230,9 @@ def main() -> int:
     if manifest is None:
         error("agent.manifest.json", "missing or unreadable — nothing can be wired")
         manifest = {}
-    load_json(WIRING_CONFIG)  # validated for well-formedness only in Task 1
+    cfg = load_json(WIRING_CONFIG) or {}
 
+    check_skill_contract(manifest, cfg, args.skill)
     check_declared_skills(manifest, args.skill)
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
