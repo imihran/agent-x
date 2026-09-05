@@ -17,8 +17,10 @@ partial is included). Task 5 scope adds check #6: every declared skill must
 be routed or registered always-on and invoked from a prompt partial. Task 6
 scope adds checks #8-10: every guardrail on disk must be in the identity
 partial's always-in-effect list (#8, ERROR), cited from some partial, routing
-file, or skill (#9, WARN), and listed in README.md (#10, WARN). Later rebuild
-tasks add the remaining checks described in README.md Section 17.1.
+file, or skill (#9, WARN), and listed in README.md (#10, WARN). Task 12 scope
+adds check #13: the README's `skills/ (N)` count must match the number of
+directories on disk under skills/. Later rebuild tasks add the remaining
+checks described in README.md Section 17.1.
 
 Severities:
   ERROR  behavioral wiring — the capability will not load or will never be
@@ -284,6 +286,23 @@ def check_readme_agents(manifest: dict, only: str | None) -> None:
                   "README advertises an agent with no manifest on disk")
 
 
+def check_readme_skill_count(only: str | None) -> None:
+    """Check #13: README's skills/ (N) count must match directories on disk."""
+    if only:
+        return
+    readme_text = readme_text_or_none()
+    if readme_text is None:
+        return
+    match = re.search(r"skills/\s*\((\d+)\)", readme_text)
+    if not match:
+        warn("README.md", "no skills/(N) count found")
+        return
+    stated = int(match.group(1))
+    actual = len([p for p in SKILLS_DIR.iterdir() if p.is_dir()]) if SKILLS_DIR.is_dir() else 0
+    if stated != actual:
+        warn("README.md", f"says skills/ ({stated}); found {actual} on disk")
+
+
 def check_prompt_includes(manifest: dict, only: str | None) -> None:
     """Checks #15-16: every systemPromptIncludes entry must exist on disk
     and the list must be sorted by numeric filename prefix (#15) — the
@@ -349,6 +368,7 @@ def main() -> int:
     check_guardrails(cfg, args.skill)
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
+    check_readme_skill_count(args.skill)
     check_prompt_includes(manifest, args.skill)
     check_routing_core(args.skill)
 

@@ -341,13 +341,27 @@ def test_generic_target_writes_skills_catalog_with_description_and_copies_dir(tm
 
 
 def test_generic_target_skills_catalog_is_header_only_when_no_skills_declared(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, skillNames=[])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "generic", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    catalog = (out_dir / "skills-catalog.md").read_text(encoding="utf-8")
+    assert catalog == "# Skills Catalog\n\n"
+
+
+def test_generic_target_skills_catalog_includes_declared_package_skills(tmp_path):
     out_dir = tmp_path / "out"
 
     result = run_assemble("--target", "generic", "--out", str(out_dir))
 
     assert result.returncode == 0
     catalog = (out_dir / "skills-catalog.md").read_text(encoding="utf-8")
-    assert catalog == "# Skills Catalog\n\n"
+    assert "**session-feedback**" in catalog
+    assert "**escalation-handoff**" in catalog
+    assert "**demo-skill**" in catalog
 
 
 def test_generic_target_copies_declared_sops(tmp_path):

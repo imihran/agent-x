@@ -6,7 +6,11 @@
     "context/prompt/00-identity.md",
     "context/prompt/10-domain-template.md"
   ],
-  "skillNames": [],
+  "skillNames": [
+    "session-feedback",
+    "escalation-handoff",
+    "demo-skill"
+  ],
   "contextGlobs": [
     "routing/*",
     "guardrails/*",
