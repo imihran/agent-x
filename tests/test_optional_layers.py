@@ -93,3 +93,52 @@ def test_readonly_investigator_write_shell_verb_is_error(tmp_path):
 
     assert result.returncode == 1
     assert "shellAllowedCommands" in result.stdout
+
+
+def test_unattended_jobs_template_ships_all_jobs_disabled():
+    jobs = json.loads((ROOT / "unattended" / "jobs.template.json").read_text(encoding="utf-8"))
+
+    assert jobs["jobs"]
+    assert all(job["enabled"] is False for job in jobs["jobs"])
+
+
+def test_unattended_policy_template_empty_lists_mean_clear():
+    policy = json.loads((ROOT / "unattended" / "policy.template.json").read_text(encoding="utf-8"))
+
+    assert policy["auto_approved_actions"] == []
+    assert policy["non_retryable_markers"] == []
+    assert "CLEAR" in policy["_comment"]
+
+
+def test_unattended_readme_states_disabled_clear_and_authcheck():
+    readme = (ROOT / "unattended" / "README.md").read_text(encoding="utf-8")
+
+    assert "enabled: false" in readme
+    assert "CLEAR" in readme
+    assert "authcheck" in readme
+
+
+def test_unattended_enabled_job_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    path = pkg / "unattended" / "jobs.template.json"
+    jobs = json.loads(path.read_text(encoding="utf-8"))
+    jobs["jobs"][0]["enabled"] = True
+    path.write_text(json.dumps(jobs, indent=2) + "\n", encoding="utf-8")
+
+    result = run_validator_at(pkg)
+
+    assert result.returncode == 1
+    assert "enabled:false" in result.stdout
+
+
+def test_unattended_policy_without_clear_semantics_is_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    path = pkg / "unattended" / "policy.template.json"
+    policy = json.loads(path.read_text(encoding="utf-8"))
+    policy["_comment"] = "empty list"
+    path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+
+    result = run_validator_at(pkg)
+
+    assert result.returncode == 1
+    assert "empty-means-CLEAR" in result.stdout

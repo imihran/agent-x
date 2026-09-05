@@ -343,6 +343,46 @@ def check_subagents(manifest: dict, only: str | None) -> None:
             error(subject, "shellAllowedCommands includes write verbs")
 
 
+def check_unattended_templates(only: str | None) -> None:
+    """Task 13 optional layer checks: unattended templates ship disabled and
+    policy empty lists explicitly mean CLEAR rather than hidden defaults."""
+    if only:
+        return
+    unattended = ROOT / "unattended"
+    jobs_path = unattended / "jobs.template.json"
+    policy_path = unattended / "policy.template.json"
+    readme_path = unattended / "README.md"
+    if not jobs_path.is_file() and not policy_path.is_file() and not readme_path.is_file():
+        return
+    subject = "unattended"
+    for p in (jobs_path, policy_path, readme_path):
+        if not p.is_file():
+            error(subject, f"optional unattended layer is partially present but {p.name} is missing")
+    jobs = load_json(jobs_path) if jobs_path.is_file() else None
+    if jobs is not None:
+        for idx, job in enumerate(jobs.get("jobs", [])):
+            if job.get("enabled") is not False:
+                error(f"unattended/jobs.template.json:{job.get('name', idx)}",
+                      "every packaged unattended job must ship with enabled:false")
+    policy = load_json(policy_path) if policy_path.is_file() else None
+    if policy is not None:
+        for key in ("auto_approved_actions", "non_retryable_markers"):
+            if policy.get(key) != []:
+                error(f"unattended/policy.template.json:{key}",
+                      "must ship as an empty list")
+        if "CLEAR" not in policy.get("_comment", ""):
+            error("unattended/policy.template.json",
+                  "must state empty-means-CLEAR semantics inline")
+    if readme_path.is_file():
+        text = read(readme_path)
+        if "enabled: false" not in text:
+            error("unattended/README.md", "must state jobs ship disabled")
+        if "CLEAR" not in text:
+            error("unattended/README.md", "must state empty lists mean CLEAR")
+        if "authcheck" not in text:
+            error("unattended/README.md", "must require authcheck before scheduling")
+
+
 def check_prompt_includes(manifest: dict, only: str | None) -> None:
     """Checks #15-16: every systemPromptIncludes entry must exist on disk
     and the list must be sorted by numeric filename prefix (#15) — the
@@ -410,6 +450,7 @@ def main() -> int:
     check_readme_agents(manifest, args.skill)
     check_readme_skill_count(args.skill)
     check_subagents(manifest, args.skill)
+    check_unattended_templates(args.skill)
     check_prompt_includes(manifest, args.skill)
     check_routing_core(args.skill)
 

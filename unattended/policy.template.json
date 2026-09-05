@@ -1,0 +1,8 @@
+{
+  "max_mutations_per_session": 5,
+  "max_tool_calls_per_session": 50,
+  "graduation_threshold": 3,
+  "auto_approved_actions": [],
+  "non_retryable_markers": [],
+  "_comment": "auto_approved_actions and non_retryable_markers ship EMPTY deliberately: which actions are safe to auto-approve and which errors are permanent is the operator's judgement, not this template's. An empty list means CLEAR, not 'use defaults'."
+}

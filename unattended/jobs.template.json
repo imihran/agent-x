@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    {
+      "name": "health-check-sweep",
+      "enabled": false,
+      "schedule": "0 */6 * * *",
+      "message": "[UNATTENDED] Run the health-check sweep per the unattended contract. Budget: 5 mutations, 50 tool calls. Auto-approved actions only; anything else returns blocked: needs-human. End with the session footer JSON. A sweep MUST exit non-zero on an auth outage — report it and stop rather than reporting an empty sweep as success."
+    },
+    {
+      "name": "graduated-review",
+      "enabled": false,
+      "schedule": "0 9 * * 1",
+      "message": "[UNATTENDED] List graduated items from the ledger with their failure histories, for human review. Read-only. End with the session footer JSON."
+    }
+  ]
+}
