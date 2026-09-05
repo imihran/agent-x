@@ -250,6 +250,8 @@ After that one-time link, pull future template updates any time with:
 
 It refuses on a dirty working tree, fetches `template`, reports and stops if there's nothing new, merges (`--no-ff`, so every sync leaves a visible commit) and runs `python3 build/ci.py` to confirm nothing broke, and reports merge conflicts without trying to auto-resolve them. It never pushes — review the result, then push yourself. `--remote`/`--branch` override the defaults if your fork uses different names; `--no-test` skips the CI run.
 
+For the full walkthrough — the one-time bootstrap, exactly what an `agent.manifest.json` conflict looks like and how to resolve it, and a real worked example of a fork-local addition and a template update syncing cleanly side by side — see `docs/sync-workflow.md`.
+
 ## Wiring a new capability
 
 Follow the rebuild spec's capability wiring procedure in `docs/spec/rebuild-spec.md`. The validator is the authority for whether the capability is actually wired.
