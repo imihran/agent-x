@@ -2,7 +2,7 @@
 """Assemble the agent package into per-host artifacts.
 
 Usage:
-    python3 build/assemble.py --target claude-code|kiro|generic [--out DIR]
+    python3 build/assemble.py --target claude-code|kiro-cli|generic [--out DIR]
 
 Reads agent.manifest.json, resolves systemPromptIncludes in listed order,
 expands contextGlobs (erroring if any glob matches a prompt/ partial),
@@ -25,7 +25,7 @@ SKILLS = ROOT / "skills"
 SOPS = ROOT / "sops"
 HOOKS = ROOT / "hooks"
 
-TARGETS = ("claude-code", "kiro", "generic")
+TARGETS = ("claude-code", "kiro-cli", "generic")
 
 
 def fail(msg: str) -> None:
@@ -131,6 +131,34 @@ def emit_mcp(manifest: dict, path: Path) -> None:
                             indent=2, sort_keys=True) + "\n")
 
 
+def emit_kiro_cli_agent(manifest: dict, path: Path) -> None:
+    """kiro-cli's agent-activation format — distinct from the Kiro GUI
+    editor's steering/hooks layout. Verified live against kiro-cli 2.20.1
+    (2026-09-04): steering (`.kiro/steering/**/*.md`) auto-loads for every
+    agent regardless of `resources`, but it's still declared explicitly here
+    so this doesn't depend on an unstated default that could change across
+    versions. Skills do NOT auto-load — `skill://.kiro/skills/*/SKILL.md`
+    must be declared for skill content to preload."""
+    name = manifest.get("name")
+    if not name:
+        fail("agent.manifest.json has no name — required for the kiro-cli agent config filename")
+    config = {
+        "name": name,
+        "description": manifest.get("description", ""),
+        "prompt": None,
+        "mcpServers": {},
+        "tools": manifest.get("tools") or ["*"],
+        "allowedTools": manifest.get("allowedTools", []),
+        "resources": [
+            "file://.kiro/steering/**/*.md",
+            "skill://.kiro/skills/*/SKILL.md",
+        ],
+        "includeMcpJson": True,
+        "model": None,
+    }
+    write(path, json.dumps(config, indent=2, sort_keys=True) + "\n")
+
+
 def hook_files() -> list[Path]:
     """Real hook files only — an empty hooks/ directory (as ships today)
     must not produce a spurious hooks.json / hooks/ output."""
@@ -153,7 +181,7 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         write(out / "hooks.json", json.dumps(aggregated, indent=2) + "\n")
 
 
-def target_kiro(manifest: dict, out: Path) -> None:
+def target_kiro_cli(manifest: dict, out: Path) -> None:
     write(out / "steering" / "00-system.md", resolve_includes(manifest))
     for f in expand_context_globs(manifest):
         rel = f.relative_to(CONTEXT)
@@ -161,10 +189,8 @@ def target_kiro(manifest: dict, out: Path) -> None:
     for d in declared_skill_dirs(manifest):
         copy_tree(d, out / "skills" / d.name)
     copy_sops(manifest, out)
-    emit_mcp(manifest, out / "mcp.json")
-    for p in hook_files():
-        write(out / "hooks" / (p.stem.replace(".hook", "") + ".kiro.hook"),
-              p.read_text(encoding="utf-8"))
+    emit_mcp(manifest, out / "settings" / "mcp.json")
+    emit_kiro_cli_agent(manifest, out / "agents" / f"{manifest['name']}.json")
 
 
 def target_generic(manifest: dict, out: Path) -> None:
@@ -189,7 +215,7 @@ def target_generic(manifest: dict, out: Path) -> None:
 
 TARGET_FUNCS = {
     "claude-code": target_claude_code,
-    "kiro": target_kiro,
+    "kiro-cli": target_kiro_cli,
     "generic": target_generic,
 }
 

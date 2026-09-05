@@ -217,13 +217,13 @@ def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):
     assert "nonexistent-skill" in result.stderr
 
 
-# --- kiro target ---
+# --- kiro-cli target ---
 
 
-def test_kiro_target_writes_00_system_steering_with_prompt_includes(tmp_path):
+def test_kiro_cli_target_writes_00_system_steering_with_prompt_includes(tmp_path):
     out_dir = tmp_path / "out"
 
-    result = run_assemble("--target", "kiro", "--out", str(out_dir))
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
     system = (out_dir / "steering" / "00-system.md").read_text(encoding="utf-8")
@@ -232,10 +232,10 @@ def test_kiro_target_writes_00_system_steering_with_prompt_includes(tmp_path):
     assert ROUTING_MARKER not in system  # eager tiers are separate steering files
 
 
-def test_kiro_target_writes_one_steering_file_per_eager_tier_file(tmp_path):
+def test_kiro_cli_target_writes_one_steering_file_per_eager_tier_file(tmp_path):
     out_dir = tmp_path / "out"
 
-    result = run_assemble("--target", "kiro", "--out", str(out_dir))
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
     routing = (out_dir / "steering" / "routing-00-core.md").read_text(encoding="utf-8")
@@ -244,24 +244,25 @@ def test_kiro_target_writes_one_steering_file_per_eager_tier_file(tmp_path):
     assert GUARDRAIL_MARKER in guardrail
 
 
-def test_kiro_target_writes_mcp_json(tmp_path):
+def test_kiro_cli_target_writes_mcp_json_under_settings(tmp_path):
     pkg = copy_package(tmp_path)
     set_manifest(pkg, mcpServers={"example": {"command": "echo"}})
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
-    mcp = json.loads((out_dir / "mcp.json").read_text(encoding="utf-8"))
+    mcp = json.loads((out_dir / "settings" / "mcp.json").read_text(encoding="utf-8"))
     assert mcp == {"mcpServers": {"example": {"command": "echo"}}}
+    assert not (out_dir / "mcp.json").exists()
 
 
-def test_kiro_target_copies_declared_skill_dir(tmp_path):
+def test_kiro_cli_target_copies_declared_skill_dir(tmp_path):
     pkg = copy_package(tmp_path)
     declare_skill(pkg, "example-skill")
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
     copied = out_dir / "skills" / "example-skill" / "SKILL.md"
@@ -269,52 +270,81 @@ def test_kiro_target_copies_declared_skill_dir(tmp_path):
     assert copied.read_text(encoding="utf-8") == original.read_text(encoding="utf-8")
 
 
-def test_kiro_target_copies_declared_sops(tmp_path):
+def test_kiro_cli_target_copies_declared_sops(tmp_path):
     pkg = copy_package(tmp_path)
     declare_sop(pkg, "example-sop")
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
     copied = out_dir / "sops" / "example-sop.sop.md"
     assert copied.read_text(encoding="utf-8") == "# Example SOP\n\nDo the thing.\n"
 
 
-def test_kiro_target_omits_hooks_dir_when_no_hooks(tmp_path):
+def test_kiro_cli_target_context_globs_matching_prompt_partial_is_hard_error(tmp_path):
     pkg = copy_package(tmp_path)
-    for hook in (pkg / "hooks").glob("*.hook.json"):
-        hook.unlink()
+    set_manifest(pkg, contextGlobs=["prompt/*"])
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "prompt" in result.stderr
+    assert not (out_dir / "steering" / "routing-00-core.md").exists()
+
+
+def test_kiro_cli_target_never_emits_hooks(tmp_path):
+    pkg = copy_package(tmp_path)
+    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
     assert not (out_dir / "hooks").exists()
 
 
-def test_kiro_target_writes_kiro_hook_file_when_hooks_exist(tmp_path):
-    pkg = copy_package(tmp_path)
-    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+def test_kiro_cli_target_writes_agent_config_with_resources_and_mcp_flag(tmp_path):
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
 
     assert result.returncode == 0
-    hook = json.loads((out_dir / "hooks" / "example.kiro.hook").read_text(encoding="utf-8"))
-    assert hook == {"event": "SessionStart", "command": "true"}
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["name"] == "agent-x"
+    assert config["prompt"] is None
+    assert config["resources"] == [
+        "file://.kiro/steering/**/*.md",
+        "skill://.kiro/skills/*/SKILL.md",
+    ]
+    assert config["includeMcpJson"] is True
+    assert config["mcpServers"] == {}
 
 
-def test_kiro_target_context_globs_matching_prompt_partial_is_hard_error(tmp_path):
-    pkg = copy_package(tmp_path)
-    set_manifest(pkg, contextGlobs=["prompt/*"])
+def test_kiro_cli_target_agent_config_tools_defaults_to_wildcard_when_manifest_empty(tmp_path):
     out_dir = tmp_path / "out"
 
-    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
+    # The real agent.manifest.json ships "tools": [] today — assert the
+    # fallback, not an override, so this breaks loudly if that ever changes.
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
 
-    assert result.returncode != 0
-    assert "prompt" in result.stderr
-    assert not (out_dir / "steering" / "routing-00-core.md").exists()
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["tools"] == ["*"]
+
+
+def test_kiro_cli_target_agent_config_tools_passes_through_when_manifest_declares_some(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, tools=["read", "write"], allowedTools=["read"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["tools"] == ["read", "write"]
+    assert config["allowedTools"] == ["read"]
 
 
 # --- generic target additions ---
@@ -414,7 +444,7 @@ def test_claude_code_target_is_deterministic_across_two_runs(tmp_path):
     assert_trees_byte_identical(out_a, out_b)
 
 
-def test_kiro_target_is_deterministic_across_two_runs(tmp_path):
+def test_kiro_cli_target_is_deterministic_across_two_runs(tmp_path):
     pkg = copy_package(tmp_path)
     declare_skill(pkg, "example-skill")
     declare_sop(pkg, "example-sop")
@@ -422,8 +452,8 @@ def test_kiro_target_is_deterministic_across_two_runs(tmp_path):
     out_a = tmp_path / "out_a"
     out_b = tmp_path / "out_b"
 
-    result_a = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_a))
-    result_b = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_b))
+    result_a = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_a))
+    result_b = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_b))
 
     assert result_a.returncode == 0
     assert result_b.returncode == 0

@@ -24,8 +24,8 @@ STAGES: list[tuple[str, list[str]]] = [
      [sys.executable, "-m", "pytest", "tests/", "-q"]),
     ("assembler smoke: claude-code",
      [sys.executable, "build/assemble.py", "--target", "claude-code"]),
-    ("assembler smoke: kiro",
-     [sys.executable, "build/assemble.py", "--target", "kiro"]),
+    ("assembler smoke: kiro-cli",
+     [sys.executable, "build/assemble.py", "--target", "kiro-cli"]),
     ("assembler smoke: generic",
      [sys.executable, "build/assemble.py", "--target", "generic"]),
 ]

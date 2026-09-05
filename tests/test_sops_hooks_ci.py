@@ -69,15 +69,15 @@ def test_hooks_are_valid_json_and_reference_wiring_sop():
     assert "sops/wire-new-capability.sop.md" in (ROOT / "hooks" / "wire-new-capability.hook.json").read_text(encoding="utf-8")
 
 
-def test_assemblers_emit_hooks_for_kiro_and_claude(tmp_path):
+def test_assembler_emits_hooks_for_claude_but_not_kiro_cli(tmp_path):
     pkg = copy_package(tmp_path)
-    kiro_out = tmp_path / "kiro"
+    kiro_cli_out = tmp_path / "kiro-cli"
     claude_out = tmp_path / "claude"
 
-    assert run_assemble_at(pkg, "kiro", kiro_out).returncode == 0
+    assert run_assemble_at(pkg, "kiro-cli", kiro_cli_out).returncode == 0
     assert run_assemble_at(pkg, "claude-code", claude_out).returncode == 0
 
-    assert (kiro_out / "hooks" / "wire-new-capability.kiro.hook").is_file()
+    assert not (kiro_cli_out / "hooks").exists()
     hooks_json = json.loads((claude_out / "hooks.json").read_text(encoding="utf-8"))
     assert {hook["name"] for hook in hooks_json} >= {"Wire New Capability", "Capability Wiring Audit"}
 
@@ -92,7 +92,7 @@ def test_ci_entrypoint_lists_all_gate_stages():
         "pytest",
         "build/assemble.py",
         "claude-code",
-        "kiro",
+        "kiro-cli",
         "generic",
     ]:
         assert expected in text
