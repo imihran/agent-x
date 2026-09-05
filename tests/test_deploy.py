@@ -39,12 +39,13 @@ def test_deploy_writes_workspace_kiro_matching_assembled_output(tmp_path):
     assert result.returncode == 0, result.stderr
     summary = json.loads(result.stdout)
     deployed = pkg / ".kiro"
-    assembled = pkg / "dist" / "kiro"
+    assembled = pkg / "dist" / "kiro-cli"
     assert summary["deployed_to"] == str(deployed)
     assert (deployed / "steering" / "00-system.md").is_file()
     assert (deployed / "skills" / "demo-skill" / "SKILL.md").is_file()
-    assert (deployed / "hooks" / "wire-new-capability.kiro.hook").is_file()
-    assert (deployed / "mcp.json").is_file()
+    assert (deployed / "settings" / "mcp.json").is_file()
+    assert (deployed / "agents" / "agent-x.json").is_file()
+    assert not (deployed / "hooks").exists()
     assert same_tree(assembled, deployed)
 
 
@@ -57,7 +58,7 @@ def test_deploy_is_idempotent(tmp_path):
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
     assert json.loads(first.stdout)["files_written"] == json.loads(second.stdout)["files_written"]
-    assert same_tree(pkg / "dist" / "kiro", pkg / ".kiro")
+    assert same_tree(pkg / "dist" / "kiro-cli", pkg / ".kiro")
 
 
 def test_deploy_can_target_different_workspace_root(tmp_path):

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAPPINGS = ("steering", "skills", "hooks", "sops", "mcp.json")
+MAPPINGS = ("steering", "skills", "sops", "settings/mcp.json", "agents")
 
 
 def fail(message: str) -> None:
@@ -65,7 +65,7 @@ def assemble(agent_root: Path, out: Path) -> None:
     if not assembler.is_file():
         fail(f"agent has no build/assemble.py: {agent_root}")
     result = subprocess.run(
-        [sys.executable, str(assembler), "--target", "kiro", "--out", str(out)],
+        [sys.executable, str(assembler), "--target", "kiro-cli", "--out", str(out)],
         cwd=agent_root,
         capture_output=True,
         text=True,
@@ -104,7 +104,7 @@ def assert_same_tree(src: Path, dst: Path) -> None:
 
 
 def deploy(agent_root: Path, workspace_root: Path, clean: bool = True) -> dict:
-    source_out = agent_root / "dist" / "kiro"
+    source_out = agent_root / "dist" / "kiro-cli"
     target = workspace_root / ".kiro"
 
     assemble(agent_root, source_out)
