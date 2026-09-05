@@ -347,6 +347,20 @@ def test_kiro_cli_target_agent_config_tools_passes_through_when_manifest_declare
     assert config["allowedTools"] == ["read"]
 
 
+def test_kiro_cli_target_agent_config_missing_name_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    manifest_path = pkg / "agent.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["name"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "name" in result.stderr
+
+
 # --- generic target additions ---
 
 
