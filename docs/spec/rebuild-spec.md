@@ -1869,6 +1869,10 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
     name = manifest.get("name")
     if not name:
         fail("agent.manifest.json has no name — required for the kiro-cli agent config filename")
+    welcome = manifest.get("welcomeMessage") or name
+    version = manifest.get("version")
+    if version:
+        welcome = f"{welcome} (v{version})"
     config = {
         "name": name,
         "description": manifest.get("description", ""),
@@ -1882,6 +1886,7 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
         ],
         "includeMcpJson": True,
         "model": None,
+        "welcomeMessage": welcome,
     }
     write(agents_dir / f"{name}.json", json.dumps(config, indent=2, sort_keys=True) + "\n")
 

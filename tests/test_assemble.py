@@ -322,6 +322,30 @@ def test_kiro_cli_target_writes_agent_config_with_resources_and_mcp_flag(tmp_pat
     assert config["mcpServers"] == {}
 
 
+def test_kiro_cli_target_agent_config_welcome_message_includes_version(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, welcomeMessage="Agent X — ready to help.", version="0.1.0")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["welcomeMessage"] == "Agent X — ready to help. (v0.1.0)"
+
+
+def test_kiro_cli_target_agent_config_welcome_message_falls_back_to_name_without_text_or_version(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, welcomeMessage="", version=None)
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["welcomeMessage"] == "agent-x"
+
+
 def test_kiro_cli_target_agent_config_tools_defaults_to_wildcard_when_manifest_empty(tmp_path):
     out_dir = tmp_path / "out"
 

@@ -1,6 +1,7 @@
 {
   "schemaVersion": "1",
   "name": "agent-x",
+  "version": "0.1.0",
   "description": "",
   "systemPromptIncludes": [
     "context/prompt/00-identity.md",
@@ -29,5 +30,5 @@
   "allowedTools": [],
   "shellAllowedCommands": [],
   "hooks": {},
-  "welcomeMessage": ""
+  "welcomeMessage": "Agent X — ready to help."
 }

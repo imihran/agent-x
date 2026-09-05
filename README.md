@@ -89,6 +89,91 @@ The full rebuild specification is preserved at:
         ├── progress/PROJECT_PROGRESS.md
         └── spec/rebuild-spec.md
 
+## How it works
+
+`agent.manifest.json` is the single source of truth: it declares which skills, SOPs, and context files belong to this agent. Nothing is loaded because it merely exists on disk — `build/assemble.py` reads the manifest and assembles per-host artifacts from it, and `context/scripts/validate-wiring.py` is the authority that proves every declared capability actually has all its attachment points (a skill with no routing row, an SOP nobody cites, a guardrail missing from the identity list — all hard errors).
+
+```mermaid
+flowchart LR
+    M["agent.manifest.json"] --> A["build/assemble.py"]
+    C["context/&nbsp;(prompt·routing·guardrails·knowledge·conventions)"] --> A
+    S["skills/"] --> A
+    P["sops/"] --> A
+
+    A -->|"--target claude-code"| D1["dist/claude-code/"]
+    A -->|"--target kiro-cli"| D2["dist/kiro-cli/"]
+    A -->|"--target generic"| D3["dist/generic/"]
+
+    D2 --> DP["build/deploy.py"]
+    DP --> K[".kiro/ in workspace root"]
+    K --> KC["kiro-cli chat --agent agent-x"]
+```
+
+One manifest, three independent targets — the same skills and guardrails reach the Kiro CLI, Claude Code, or any other host, each in the file layout that host expects, with no per-host copy-paste to keep in sync.
+
+Context itself splits into five tiers by loading path, not by convention:
+
+| Tier | Loads via | Example |
+|---|---|---|
+| `context/prompt/` | `systemPromptIncludes` — inlined into the system prompt, in listed order | identity, domain persona |
+| `context/routing/` | eager glob — always in context every session | the pre-flight gate, skill dispatch table |
+| `context/guardrails/` | eager glob | no-fabrication, confirm-before-execute |
+| `context/knowledge/` | eager glob | known silent failures, glossary |
+| `context/conventions/` | eager glob | authoring/quality conventions |
+| `context/scripts/` | never loaded as context — executable tooling only | `validate-wiring.py` |
+
+A prompt partial is never also matched by a glob (that would load it twice) — the assembler hard-errors if `contextGlobs` ever points back at `context/prompt/`.
+
+The other half of "modular" is dispatch: when a request matches a row in `context/routing/*.md`, activating that skill is the agent's first move — before any other tool call, even a read — because the skill carries the procedures (confirmation gates, output templates) that need to already be in context. A request matching no row gets exactly one clarifying question, never a guess.
+
+```mermaid
+flowchart TD
+    U["User request"] --> R{"Matches a row in\ncontext/routing/*.md?"}
+    R -->|yes| Act["Activate the matched skill\nFIRST — before any other tool call"]
+    Act --> Go["Proceed: tool calls, confirmations,\noutput per the skill's template"]
+    R -->|no| Q["Ask exactly one\nclarifying question"]
+```
+
+### Worked example: one request, traced end to end
+
+Take the shipped `demo-skill` — say "run the demo". Every step below cites the file that actually owns it:
+
+1. **Gate fires first.** "run the demo" matches the row in `context/routing/10-domain-template.md` ("Anything handled by the shipped demo — `demo-skill`"). Per `context/routing/00-core.md`'s pre-flight gate, `demo-skill` MUST be activated before any other tool call — even a read.
+2. **Read path.** `demo-skill`'s own `## Workflow` (`skills/demo-skill/SKILL.md`) runs `python3 tool/toolkit/toolkit.py list` and presents the result as a table.
+3. **Write path, gated.** The skill proposes adding one item and presents the exact pending command, per `context/guardrails/confirm-before-execute.md` — then waits. Nothing runs yet.
+4. **Confirmation → execute → verify.** Only after the user confirms does `toolkit.py create` run. The toolkit read-back-verifies its own write, and the skill reports the result labeled `[verified: read-back]`, per `context/guardrails/verify-before-assert.md` — never claimed as landed on the strength of the write call alone.
+5. **Offer cleanup** — also gated the same way.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Gate as Routing gate<br/>(context/routing/*.md)
+    participant Skill as demo-skill<br/>(SKILL.md)
+    participant Tool as tool/toolkit/toolkit.py
+
+    User->>Gate: "run the demo"
+    Gate->>Skill: matches a routing row →<br/>activate BEFORE any other tool call
+    Skill->>Tool: list (read path)
+    Tool-->>Skill: items
+    Skill-->>User: present as table
+
+    Skill-->>User: propose write — exact command,<br/>per confirm-before-execute.md
+    User-->>Skill: confirm
+
+    Skill->>Tool: create --name demo-item --value 1
+    Tool-->>Tool: read-back verify
+    Tool-->>Skill: verified result
+    Skill-->>User: report "[verified: read-back]"<br/>per verify-before-assert.md
+
+    Skill-->>User: offer cleanup (gated the same way)
+```
+
+Swap `demo-skill` for your own first skill and the trace is identical — a routing row you write, activation the gate enforces, a workflow you author, and guardrails that are cited, not restated. That's the whole loop `sops/wire-new-capability.sop.md` walks you through.
+
+> **Live-verified, not just illustrated.** Sent `kiro-cli --agent agent-x "run the demo"` against a real deploy and watched every step above happen: `demo-skill/SKILL.md` was read before anything else, the read path ran and printed the empty store, then it stopped and presented the exact pending command with a source citation (`demo-skill § Workflow step 2–3`) instead of executing — holding even with shell execution fully trusted, i.e. the model honoring the skill's own instruction, not just an external permission wall. Confirming resumed the session, ran the write, and it reported back the toolkit's real `"verified": "read-back"` result labeled accordingly, closing with: *"Wiring loop complete: routing row → skill activation → tool call → confirmation gate → verified result."*
+
+The full mechanics — the eight architectural principles behind this, the wiring validator's complete rule set, and the capability-wiring procedure for adding your own skill — are in `docs/spec/rebuild-spec.md`.
+
 ## Declared skills (3)
 
 | Skill | What it does |
@@ -150,6 +235,20 @@ Secondary target: Claude Code
 Portable fallback target:
 
     python3 build/assemble.py --target generic
+
+## Forking this template
+
+Fork this repo (e.g. `agent-x-mish`, personalized with your own skills) by adding this repo as a remote — conventionally named `template` — and merging its history in once:
+
+    git remote add template <this-repo-url>
+    git fetch template
+    git merge template/main --allow-unrelated-histories
+
+After that one-time link, pull future template updates any time with:
+
+    python3 build/sync_template.py
+
+It refuses on a dirty working tree, fetches `template`, reports and stops if there's nothing new, merges (`--no-ff`, so every sync leaves a visible commit) and runs `python3 build/ci.py` to confirm nothing broke, and reports merge conflicts without trying to auto-resolve them. It never pushes — review the result, then push yourself. `--remote`/`--branch` override the defaults if your fork uses different names; `--no-test` skips the CI run.
 
 ## Wiring a new capability
 
