@@ -7,12 +7,14 @@ Agent X is a codename. Keep user-facing names configurable until the final name 
 ## Quick start
 
 1. Clone the repo.
-2. Deploy the Kiro runtime files into the workspace root:
+2. Deploy the kiro-cli runtime files into the workspace root:
 
        python3 build/deploy.py
 
-3. Open the repo folder in Kiro, or ask it from the CLI:
+3. Activate the agent:
 
+       kiro-cli chat --agent agent-x
+       # or, via the launcher (deploys first, then launches):
        python3 build/kiro_agent.py --agent . --prompt "What agent are you?"
 
 The full rebuild specification is preserved at:
@@ -118,15 +120,16 @@ On hosts that fire no hook events, running the validator directly is the primary
 
 ## Build targets
 
-Primary target: Kiro
+Primary target: kiro-cli
 
-    python3 build/assemble.py --target kiro
+    python3 build/assemble.py --target kiro-cli
 
-To make Kiro actually load Agent X in this workspace, deploy generated files into `.kiro/`:
+To make kiro-cli actually load Agent X in this workspace, deploy generated files into `.kiro/`:
 
     python3 build/deploy.py
+    kiro-cli chat --agent agent-x
 
-For repeatable Kiro CLI testing and agent switching, use the launcher:
+For repeatable kiro-cli testing and agent switching, use the launcher:
 
     python3 build/kiro_agent.py --agent . --prompt "Run the demo skill" --dry-run
     python3 build/kiro_agent.py --agent . --prompt "Run the demo skill"
@@ -136,7 +139,7 @@ To switch agents, pass another agent package path or an alias from `agents/regis
     cp agents/registry.local.json.example agents/registry.local.json
     python3 build/kiro_agent.py --agent /path/to/other-agent --prompt "Smoke test"
 
-The launcher deploys the selected agent into `<workspace-root>/.kiro/` and launches Kiro from that workspace root, because Kiro loads agent config from the workspace `.kiro/` directory.
+The launcher deploys the selected agent into `<workspace-root>/.kiro/` and launches `kiro-cli chat --agent <name>` from that workspace root, because kiro-cli loads agent config from the workspace `.kiro/agents/` directory.
 
 Secondary target: Claude Code
 

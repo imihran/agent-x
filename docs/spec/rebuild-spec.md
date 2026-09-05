@@ -1676,14 +1676,30 @@ One neutral source tree, per-host artifacts. `build/assemble.py` compiles the pa
 
 ### 13.2 Target bindings
 
-| Concept | `claude-code` target | `kiro` target | `generic` target |
+| Concept | `claude-code` target | `kiro-cli` target | `generic` target |
 |---|---|---|---|
-| System prompt | `dist/claude-code/CLAUDE.md` (assembled prompt + eager tiers appended) | `dist/kiro/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
-| Skills | `dist/claude-code/.claude/skills/<name>/` | `dist/kiro/skills/<name>/` | `dist/generic/skills-catalog.md` (frontmatter index for prompt injection) + copied dirs |
-| SOPs | `dist/claude-code/sops/<name>.sop.md` (copied — skills and hooks cite these paths) | `dist/kiro/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
-| MCP servers | `dist/claude-code/.mcp.json` | `dist/kiro/mcp.json` | `dist/generic/mcp.json` |
-| Hooks | `dist/claude-code/hooks.json` (aggregated list, neutral schema — no trigger rewriting) | `dist/kiro/hooks/<name>.kiro.hook` | omitted (no hook runtime assumed) |
+| System prompt | `dist/claude-code/CLAUDE.md` (assembled prompt + eager tiers appended) | `dist/kiro-cli/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
+| Skills | `dist/claude-code/.claude/skills/<name>/` | `dist/kiro-cli/skills/<name>/` | `dist/generic/skills-catalog.md` (frontmatter index for prompt injection) + copied dirs |
+| SOPs | `dist/claude-code/sops/<name>.sop.md` (copied — skills and hooks cite these paths) | `dist/kiro-cli/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
+| MCP servers | `dist/claude-code/.mcp.json` | `dist/kiro-cli/settings/mcp.json` | `dist/generic/mcp.json` |
+| Agent activation | n/a (host loads `CLAUDE.md` directly) | `dist/kiro-cli/agents/<name>.json` — `resources` field points at the steering/skills paths above; kiro-cli's own `--agent <name>` flag activates it | n/a |
+| Hooks | `dist/claude-code/hooks.json` (aggregated list, neutral schema — no trigger rewriting) | omitted — kiro-cli's default engine has no hook runtime | omitted (no hook runtime assumed) |
 | Wiring proof | the validator runs on the SOURCE tree — identical for all targets | same | same |
+
+**Verified kiro-cli agent-activation behavior** (tested live against kiro-cli
+2.20.1, default `--agent-engine v2`, 2026-09-04 — the hosted docs are
+ambiguous or wrong on these points, so this repo's own empirical test is the
+source of truth):
+- `.kiro/steering/**/*.md` loads for every agent in the workspace
+  unconditionally, regardless of what that agent's `resources` field
+  declares. `resources` still lists it explicitly, since relying on an
+  unstated default is fragile across kiro-cli versions.
+- `.kiro/skills/*/SKILL.md` does **not** auto-load — it requires an explicit
+  `"skill://.kiro/skills/*/SKILL.md"` entry in `resources`.
+- `includeMcpJson: true` reads `.kiro/settings/mcp.json` — not a top-level
+  `.kiro/mcp.json`.
+- A relative `file://` resource path resolves against the workspace root
+  (the invocation `cwd`), not the agent config file's own directory.
 
 ### 13.3 `build/assemble.py`
 
@@ -1692,7 +1708,7 @@ One neutral source tree, per-host artifacts. `build/assemble.py` compiles the pa
 """Assemble the agent package into per-host artifacts.
 
 Usage:
-    python3 build/assemble.py --target claude-code|kiro|generic [--out DIR]
+    python3 build/assemble.py --target claude-code|kiro-cli|generic [--out DIR]
 
 Reads agent.manifest.json, resolves systemPromptIncludes in listed order,
 expands contextGlobs (erroring if any glob matches a prompt/ partial),
@@ -1827,7 +1843,28 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         write(out / "hooks.json", json.dumps(hooks, indent=2) + "\n")
 
 
-def target_kiro(manifest: dict, out: Path) -> None:
+def emit_kiro_cli_agent(manifest: dict, path: Path) -> None:
+    """kiro-cli's agent-activation format. Steering auto-loads regardless of
+    `resources` (declared here anyway, for clarity); skills do not — see the
+    verified-behavior note in 13.2."""
+    config = {
+        "name": manifest["name"],
+        "description": manifest.get("description", ""),
+        "prompt": None,
+        "mcpServers": {},
+        "tools": manifest.get("tools") or ["*"],
+        "allowedTools": manifest.get("allowedTools", []),
+        "resources": [
+            "file://.kiro/steering/**/*.md",
+            "skill://.kiro/skills/*/SKILL.md",
+        ],
+        "includeMcpJson": True,
+        "model": None,
+    }
+    write(path, json.dumps(config, indent=2, sort_keys=True) + "\n")
+
+
+def target_kiro_cli(manifest: dict, out: Path) -> None:
     write(out / "steering" / "00-system.md", resolve_includes(manifest))
     for f in expand_globs(manifest):
         rel = f.relative_to(CONTEXT)
@@ -1835,11 +1872,8 @@ def target_kiro(manifest: dict, out: Path) -> None:
     for d in declared_skill_dirs(manifest):
         copy_tree(d, out / "skills" / d.name)
     copy_sops(manifest, out)
-    emit_mcp(manifest, out / "mcp.json")
-    if HOOKS.is_dir():
-        for p in sorted(HOOKS.glob("*.hook.json")):
-            write(out / "hooks" / (p.stem.replace(".hook", "") + ".kiro.hook"),
-                  p.read_text(encoding="utf-8"))
+    emit_mcp(manifest, out / "settings" / "mcp.json")
+    emit_kiro_cli_agent(manifest, out / "agents" / f"{manifest['name']}.json")
 
 
 def target_generic(manifest: dict, out: Path) -> None:
@@ -1864,7 +1898,7 @@ def target_generic(manifest: dict, out: Path) -> None:
 
 TARGETS = {
     "claude-code": target_claude_code,
-    "kiro": target_kiro,
+    "kiro-cli": target_kiro_cli,
     "generic": target_generic,
 }
 
@@ -2049,7 +2083,7 @@ if __name__ == "__main__":
 
 ### 13.5 Hook templates
 
-Host-neutral shape, re-emitted **without translation**: the `kiro` target renames each file to `<name>.kiro.hook`, the `claude-code` target aggregates all hooks into one `hooks.json` list. Neither rewrites triggers — the neutral field names ARE the contract. A host whose runtime expects different trigger names gets its mapping added in that host's target function in `build/assemble.py`; the extension point is deliberate, and claiming translation the assembler does not perform would violate self-report honesty.
+Host-neutral shape, re-emitted **without translation**: the `claude-code` target aggregates all hooks into one `hooks.json` list. The `kiro-cli` target omits hooks entirely — kiro-cli's default engine has no hook runtime to receive them (verified: no hook-related concept anywhere in its CLI surface). Neither rewrites triggers where they are emitted — the neutral field names ARE the contract. A host whose runtime expects different trigger names gets its mapping added in that host's target function in `build/assemble.py`; the extension point is deliberate, and claiming translation the assembler does not perform would violate self-report honesty.
 
 `hooks/wire-new-capability.hook.json`:
 
@@ -3185,8 +3219,8 @@ STAGES: list[tuple[str, list[str]]] = [
      [sys.executable, "-m", "pytest", "tests/", "-q"]),
     ("assembler smoke: claude-code",
      [sys.executable, "build/assemble.py", "--target", "claude-code"]),
-    ("assembler smoke: kiro",
-     [sys.executable, "build/assemble.py", "--target", "kiro"]),
+    ("assembler smoke: kiro-cli",
+     [sys.executable, "build/assemble.py", "--target", "kiro-cli"]),
     ("assembler smoke: generic",
      [sys.executable, "build/assemble.py", "--target", "generic"]),
 ]
@@ -3308,7 +3342,7 @@ Execute in order. Every task ends in a demoable, tested increment; do not start 
 *Demo:* editing the README surface table to add a phantom command makes `check-tool-contract.py` exit 1 naming it PHANTOM; deleting `toolkit.py` makes it exit 2, not 0.
 
 **Task 11 — Target adapters.** Complete `assemble.py` for all three targets (13.2, 13.3).
-*Demo:* `python3 build/assemble.py --target claude-code|kiro|generic` each produce the documented artifact layout; outputs are byte-identical across two runs.
+*Demo:* `python3 build/assemble.py --target claude-code|kiro-cli|generic` each produce the documented artifact layout; outputs are byte-identical across two runs.
 
 **Task 12 — Generic capabilities wired end to end.** Write and wire `session-feedback`, `escalation-handoff`, and `demo-skill` (Sections 8, 12) per the wiring procedure (10.2 — its packaged SOP form arrives in Task 14); write the README (Section 3 skeleton) with the validated `skills/ (N)` count; write `preflight.py` and `discover.py` (13.4).
 *Demo:* validator `--strict` clean; a "run the demo" request in a live session routes through the gate, activates `demo-skill`, lists items via the toolkit, and gates the demo write behind a confirmation.
