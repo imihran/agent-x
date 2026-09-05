@@ -498,6 +498,24 @@ def test_kiro_cli_target_is_deterministic_across_two_runs(tmp_path):
     assert_trees_byte_identical(out_a, out_b)
 
 
+def test_reassembling_into_same_out_dir_removes_stale_files_from_prior_run(tmp_path):
+    pkg = copy_package(tmp_path)
+    out_dir = tmp_path / "out"
+
+    original_name = json.loads((pkg / "agent.manifest.json").read_text(encoding="utf-8"))["name"]
+    result_a = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+    assert result_a.returncode == 0
+    stale_agent_file = out_dir / "agents" / f"{original_name}.json"
+    assert stale_agent_file.is_file()
+
+    set_manifest(pkg, name="renamed-agent")
+    result_b = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+    assert result_b.returncode == 0
+
+    assert not stale_agent_file.exists(), "stale per-name file from the prior run must not survive"
+    assert (out_dir / "agents" / "renamed-agent.json").is_file()
+
+
 def test_generic_target_is_deterministic_across_two_runs(tmp_path):
     pkg = copy_package(tmp_path)
     declare_skill(pkg, "example-skill")

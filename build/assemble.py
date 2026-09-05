@@ -239,6 +239,8 @@ def main() -> int:
 
     manifest = load_manifest()
     out = Path(args.out) if args.out else ROOT / "dist" / args.target
+    if out.exists():
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     TARGET_FUNCS[args.target](manifest, out)
     print(f"assembled target={args.target} out={out}")
