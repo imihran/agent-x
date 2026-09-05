@@ -27,6 +27,8 @@ First decide how the capability splits between the eager and lazy layers — `do
 - You MUST write a description stating what AND when — because it is the routing signal; a bare label is not routable.
 - You MUST keep the description to one or two sentences — because it sits in the always-loaded skills index (P9); the `SKILL.md` body is lazy and carries the full procedure.
 - You MUST keep recurring safety-critical rules inline in the skill body, not deferred to `references/` — because progressive disclosure is unreliable mid-flow (step 6).
+- You MUST NOT add skill-specific facts to `context/knowledge/` or `context/conventions/` — because those globs load every turn; skill-specific material goes in the skill body, and only a genuinely cross-cutting fact earns an eager row (§8.7).
+- You SHOULD ship the read/diagnostic skill first and defer a high-stakes mutation skill plus its SOP until that path's risk is understood — because safety scaffolding is written before the first run, not deferred to first friction (§8.7 step 7).
 - You MUST keep guardrails short — because they are loaded on every turn and paid for in context on every request.
 - You MUST NOT duplicate rule content that lives in another guardrail — cite it by path instead, because copies drift.
 
