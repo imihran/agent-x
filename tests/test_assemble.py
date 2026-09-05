@@ -181,9 +181,12 @@ def test_claude_code_target_copies_declared_sops(tmp_path):
 
 
 def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
+    pkg = copy_package(tmp_path)
+    for hook in (pkg / "hooks").glob("*.hook.json"):
+        hook.unlink()
     out_dir = tmp_path / "out"
 
-    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
     assert not (out_dir / "hooks.json").exists()
@@ -198,7 +201,9 @@ def test_claude_code_target_writes_hooks_json_when_hooks_exist(tmp_path):
 
     assert result.returncode == 0
     hooks = json.loads((out_dir / "hooks.json").read_text(encoding="utf-8"))
-    assert hooks == [{"event": "SessionStart", "command": "true"}]
+    assert {json.dumps(hook, sort_keys=True) for hook in hooks} >= {
+        json.dumps({"event": "SessionStart", "command": "true"}, sort_keys=True)
+    }
 
 
 def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):
@@ -277,9 +282,12 @@ def test_kiro_target_copies_declared_sops(tmp_path):
 
 
 def test_kiro_target_omits_hooks_dir_when_no_hooks(tmp_path):
+    pkg = copy_package(tmp_path)
+    for hook in (pkg / "hooks").glob("*.hook.json"):
+        hook.unlink()
     out_dir = tmp_path / "out"
 
-    result = run_assemble("--target", "kiro", "--out", str(out_dir))
+    result = run_assemble_at(pkg, "--target", "kiro", "--out", str(out_dir))
 
     assert result.returncode == 0
     assert not (out_dir / "hooks").exists()

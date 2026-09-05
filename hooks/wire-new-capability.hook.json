@@ -1,0 +1,16 @@
+{
+  "name": "Wire New Capability",
+  "version": "1.0.0",
+  "description": "When a new skill or guardrail file is created, walks the wiring SOP and completes every missing attachment point so the capability actually loads and routes.",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "skills/*/SKILL.md",
+      "context/guardrails/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A new capability file was just created. A file on disk does nothing until it is wired in. 1) Follow sops/wire-new-capability.sop.md. 2) Run python3 context/scripts/validate-wiring.py --strict (use --skill NAME for one skill). 3) Complete every missing attachment point. 4) Re-run the validator and report. If it already passes clean, say so in one line and stop. Never silence a finding via allowlist unless the exemption is genuine and the reason is recorded in wiring.config.json."
+  }
+}

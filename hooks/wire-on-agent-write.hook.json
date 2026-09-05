@@ -1,0 +1,13 @@
+{
+  "name": "Wire Capability On Agent Write",
+  "version": "1.0.0",
+  "description": "After the agent writes a skill or guardrail file, runs the wiring validator. Silent when the file is already fully wired.",
+  "when": {
+    "type": "postToolUse",
+    "toolMatcher": "write|str_replace|append"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "If the file just written is under skills/ or context/guardrails/, run python3 context/scripts/validate-wiring.py --strict and complete any missing attachment points per sops/wire-new-capability.sop.md. If validation passes clean, say nothing."
+  }
+}

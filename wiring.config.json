@@ -1,8 +1,10 @@
 {
   "alwaysOnSkills": [],
   "undeclaredSkillAllowlist": {
-    "example-skill": "intentionally undeclared template — copied, never activated"
+    "example-skill": "intentionally undeclared template \u2014 copied, never activated"
   },
-  "undeclaredSopAllowlist": {},
+  "undeclaredSopAllowlist": {
+    "example": "intentionally undeclared template \u2014 copied, never declared"
+  },
   "guardrailReferenceAllowlist": {}
 }

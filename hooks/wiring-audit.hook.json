@@ -1,0 +1,12 @@
+{
+  "name": "Capability Wiring Audit",
+  "version": "1.0.0",
+  "description": "On-demand full audit: every skill, guardrail, SOP, and README count checked for complete wiring.",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Run python3 context/scripts/validate-wiring.py --strict and report every finding with the fix each one needs. Zero findings: report PASS in one line."
+  }
+}

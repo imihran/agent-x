@@ -17,7 +17,10 @@
     "knowledge/*",
     "conventions/*"
   ],
-  "sopNames": [],
+  "sopNames": [
+    "wire-new-capability",
+    "adversarial-review"
+  ],
   "subagentNames": [
     "readonly-investigator"
   ],

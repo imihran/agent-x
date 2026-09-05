@@ -255,15 +255,20 @@ def check_guardrails(cfg: dict, only: str | None) -> None:
 
 
 def check_declared_sops(manifest: dict, only: str | None) -> None:
-    """Check #11: a SOP declared in manifest sopNames must exist on disk."""
+    """Checks #11-12: declared SOPs must exist, and on-disk SOPs must be
+    declared unless intentionally allowlisted as inert templates."""
     if only:
         return
     declared = set(manifest.get("sopNames", []))
+    cfg = load_json(WIRING_CONFIG) or {}
+    allow = set(cfg.get("undeclaredSopAllowlist", {}))
     on_disk = {p.name.removesuffix(".sop.md") for p in SOPS_DIR.glob("*.sop.md")} \
         if SOPS_DIR.is_dir() else set()
     for sop in sorted(declared - on_disk):
         error(f"sopNames:{sop}",
               f"declared in the manifest but sops/{sop}.sop.md does not exist")
+    for sop in sorted(on_disk - declared - allow):
+        warn(f"sops/{sop}", "exists but is not declared in sopNames")
 
 
 def check_readme_agents(manifest: dict, only: str | None) -> None:

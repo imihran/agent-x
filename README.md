@@ -18,7 +18,8 @@ The full rebuild specification is preserved at:
     ├── agent.manifest.json
     ├── wiring.config.json
     ├── build/
-    │   └── assemble.py
+    │   ├── assemble.py
+    │   └── ci.py
     ├── context/
     │   ├── prompt/
     │   │   ├── 00-identity.md
@@ -40,6 +41,7 @@ The full rebuild specification is preserved at:
     │   ├── conventions/
     │   │   └── authoring-conventions.md
     │   ├── prompts/
+    │   │   └── readonly-investigator.md
     │   └── scripts/
     │       ├── validate-wiring.py
     │       ├── preflight.py
@@ -50,13 +52,23 @@ The full rebuild specification is preserved at:
     │   ├── demo-skill/
     │   └── example-skill/
     ├── sops/
+    │   ├── wire-new-capability.sop.md
+    │   ├── adversarial-review.sop.md
+    │   └── example.sop.md
     ├── agents/
+    │   └── readonly-investigator.agent.json
     ├── unattended/
+    │   ├── README.md
+    │   ├── jobs.template.json
+    │   └── policy.template.json
     ├── tool/
     │   └── toolkit/
     │       ├── toolkit.py
     │       └── README.md
     ├── hooks/
+    │   ├── wire-new-capability.hook.json
+    │   ├── wire-on-agent-write.hook.json
+    │   └── wiring-audit.hook.json
     ├── guards/
     │   ├── check-tool-contract.py
     │   └── check-cli-references.py
@@ -87,6 +99,10 @@ Run the source-tree validation gate:
     python3 guards/check-tool-contract.py
     python3 guards/check-cli-references.py
     python3 -m pytest tests/ -q
+
+Or run the canonical local CI gate:
+
+    python3 build/ci.py
 
 On hosts that fire no hook events, running the validator directly is the primary enforcement path. Run it before every commit that touches `skills/`, `context/`, `sops/`, `agent.manifest.json`, or `wiring.config.json`.
 
