@@ -1,6 +1,6 @@
 # Agent X Project Progress
 
-Last updated: after README Section 20 Task 13a.
+Last updated: after README Section 20 Task 14a.
 
 ## Current goal
 
@@ -13,7 +13,7 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 - Working branch: `build/rebuild-spec-task-1`
 - Main README: `README.md`
 - Preserved rebuild spec: `docs/spec/rebuild-spec.md`
-- Current latest pushed commit: `b453ec7 feat: add generic base capabilities`
+- Current latest pushed commit: `11eb8f9 feat: add SOPs hooks and CI gate`
 - All completed implementation steps have been committed and pushed to `origin/build/rebuild-spec-task-1`.
 
 ## User instructions / operating rules
@@ -118,13 +118,41 @@ Implemented the first half of Task 13:
 - manifest `subagentNames` declaration
 - validator/tests proving the investigator is read-only by tool scope and only permits toolkit read verbs (`list|get|search|discover|authcheck`).
 
+### Task 13b — Optional unattended templates
+
+Commit: `24be0cc feat: add unattended operation templates`
+
+Implemented the second half of Task 13:
+- `unattended/README.md`
+- `unattended/jobs.template.json`
+- `unattended/policy.template.json`
+- validator/tests proving every packaged job ships with `enabled: false` and the policy template ships empty lists with empty-means-CLEAR semantics.
+
+### Task 14a — SOPs, hooks, and local CI gate
+
+Commit: `11eb8f9 feat: add SOPs hooks and CI gate`
+
+Implemented most of Task 14:
+- `sops/wire-new-capability.sop.md`
+- `sops/adversarial-review.sop.md`
+- `sops/example.sop.md` as an undeclared allowlisted template
+- manifest `sopNames` declaration for the first two SOPs
+- `wiring.config.json` undeclared SOP allowlist for `example`
+- `hooks/wire-new-capability.hook.json`
+- `hooks/wire-on-agent-write.hook.json`
+- `hooks/wiring-audit.hook.json`
+- `build/ci.py` as the canonical cross-platform CI gate
+- tests proving SOP declaration/allowlist behavior, hook emission in Kiro/Claude targets, and CI stage coverage.
+
+Not yet implemented: `.github/workflows/validate.yml`, because current `gh auth status` shows token scopes `gist`, `read:org`, and `repo`, but not `workflow`; GitHub rejects pushes that add workflow files without that scope.
+
 ## Current verification status
 
-Latest verified after Task 13a:
+Latest verified after Task 14a:
 
 ```text
 /tmp/agent-x-venv/bin/python -m pytest tests/ -q
-83 passed
+93 passed
 
 python3 context/scripts/validate-wiring.py --strict
 WIRING VALIDATION: PASS (all capabilities) — fully wired
@@ -135,46 +163,36 @@ TOOL CONTRACT: AGREE
 python3 guards/check-cli-references.py
 CLI REFERENCES: AGREE
 
-python3 context/scripts/preflight.py --with-discovery
-exit 0; emits PREFLIGHT_STATE v1 and TOOL_SURFACE v1 blocks
+/tmp/agent-x-venv/bin/python build/ci.py
+CI GATE: PASS — all stages green
 
-python3 build/assemble.py --target kiro --out /tmp/agent-x-task12-kiro-final
-assembled successfully; Kiro layout includes steering/00-system.md, mcp.json, and declared skills; no .gitkeep artifacts
-
-python3 build/assemble.py --target claude-code --out /tmp/agent-x-task12-claude-final
+python3 build/assemble.py --target kiro --out /tmp/agent-x-task14a-kiro
 assembled successfully
 
-python3 build/assemble.py --target generic --out /tmp/agent-x-task12-generic-final
+python3 build/assemble.py --target claude-code --out /tmp/agent-x-task14a-claude
+assembled successfully
+
+python3 build/assemble.py --target generic --out /tmp/agent-x-task14a-generic
 assembled successfully
 ```
 
-System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv`.
+System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv`; use it for pytest and `build/ci.py` locally.
 
 ## Material blockers / gotchas
 
-- GitHub token lacks `workflow` scope. A previous push containing `.github/workflows/.gitkeep` was rejected. Avoid adding `.github/workflows/*` until Task 14 and/or token scope is fixed.
+- GitHub token lacks `workflow` scope. Do not commit `.github/workflows/*` until auth is refreshed with workflow scope, or the push will be rejected.
 - Initial Kiro layout validation passed after Task 11/12, but full interactive Kiro load/runtime validation has not yet been performed.
 - Generated/cache files should be removed before commits: `dist/`, `.pytest_cache/`, `tests/__pycache__/`.
 - The full 3,324-line rebuild spec is preserved at `docs/spec/rebuild-spec.md`; README is now a concise operator-facing summary.
 
 ## Next task
 
-Proceed with README Section 20 Task 13b — unattended operation templates.
+Finish Task 14b when GitHub auth has `workflow` scope:
+- Add `.github/workflows/validate.yml` as the vendor binding around `python3 build/ci.py`.
+- Verify the workflow file locally with syntax/read checks and rerun `/tmp/agent-x-venv/bin/python build/ci.py`.
+- Commit and push only after `gh auth status` includes `workflow`.
 
-Expected scope:
-- Add `unattended/README.md`.
-- Add `unattended/jobs.template.json` with every job `enabled: false`.
-- Add `unattended/policy.template.json` with empty-means-CLEAR semantics stated inline.
-- Add focused tests/validator checks for disabled jobs and clear empty policy.
-- Do not start Task 14 SOPs, hooks, or CI until Task 13b is committed and pushed.
-
-Expected verification before the next commit:
-- `/tmp/agent-x-venv/bin/python -m pytest tests/ -q`
-- `python3 context/scripts/validate-wiring.py --strict`
-- `python3 guards/check-tool-contract.py`
-- `python3 guards/check-cli-references.py`
-- `python3 context/scripts/preflight.py --with-discovery`
-- assembler smoke for `kiro`, `claude-code`, and `generic`
+If workflow scope is not available yet, proceed to the next non-workflow task from Section 20 after reading its exact scope from `docs/spec/rebuild-spec.md`.
 
 ## Suggested skills for next session
 
