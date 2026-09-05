@@ -1,6 +1,6 @@
 # Agent X Project Progress
 
-Last updated: after README Section 20 Task 14a.
+Last updated: after Kiro launcher/switcher.
 
 ## Current goal
 
@@ -13,7 +13,7 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 - Working branch: `build/rebuild-spec-task-1`
 - Main README: `README.md`
 - Preserved rebuild spec: `docs/spec/rebuild-spec.md`
-- Current latest pushed commit: `11eb8f9 feat: add SOPs hooks and CI gate`
+- Current latest pushed commit: `3364b46 feat: add Kiro agent launcher`
 - All completed implementation steps have been committed and pushed to `origin/build/rebuild-spec-task-1`.
 
 ## User instructions / operating rules
@@ -146,13 +146,26 @@ Implemented most of Task 14:
 
 Not yet implemented: `.github/workflows/validate.yml`, because current `gh auth status` shows token scopes `gist`, `read:org`, and `repo`, but not `workflow`; GitHub rejects pushes that add workflow files without that scope.
 
+### Kiro launcher/switcher
+
+Commit: `3364b46 feat: add Kiro agent launcher`
+
+Added `build/kiro_agent.py`, a repeatable Kiro launcher that:
+- assembles a selected agent package into `.kiro-agents/<agent-name>/` by default
+- launches `kiro chat --mode agent` from that assembled artifact directory
+- assigns each agent its own Kiro profile by default
+- supports swapping agents via `--agent /path/to/agent` or aliases in local-only `agents/registry.local.json`
+- supports `--dry-run` so the exact command/path/profile can be inspected without launching Kiro
+
+Added `tests/test_kiro_agent_runner.py` and README usage notes. `.kiro-agents/` and `agents/registry.local.json` are gitignored.
+
 ## Current verification status
 
-Latest verified after Task 14a:
+Latest verified after Kiro launcher/switcher:
 
 ```text
 /tmp/agent-x-venv/bin/python -m pytest tests/ -q
-93 passed
+97 passed
 
 python3 context/scripts/validate-wiring.py --strict
 WIRING VALIDATION: PASS (all capabilities) — fully wired
@@ -174,6 +187,9 @@ assembled successfully
 
 python3 build/assemble.py --target generic --out /tmp/agent-x-task14a-generic
 assembled successfully
+
+python3 build/kiro_agent.py --agent . --workspace /tmp/agent-x-switcher --prompt 'Smoke test' --dry-run
+exit 0; emits valid JSON with shell command: cd /tmp/agent-x-switcher/agent-x && kiro chat --mode agent --profile agent-x 'Smoke test'
 ```
 
 System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv`; use it for pytest and `build/ci.py` locally.
