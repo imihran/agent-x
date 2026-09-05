@@ -1843,12 +1843,19 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         write(out / "hooks.json", json.dumps(hooks, indent=2) + "\n")
 
 
-def emit_kiro_cli_agent(manifest: dict, path: Path) -> None:
-    """kiro-cli's agent-activation format. Steering auto-loads regardless of
-    `resources` (declared here anyway, for clarity); skills do not — see the
-    verified-behavior note in 13.2."""
+def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
+    """kiro-cli's agent-activation format — distinct from the Kiro GUI
+    editor's steering-file convention. Verified live against kiro-cli 2.20.1
+    (2026-09-04): steering (`.kiro/steering/**/*.md`) auto-loads for every
+    agent regardless of `resources`, but it's still declared explicitly here
+    so this doesn't depend on an unstated default that could change across
+    versions. Skills do NOT auto-load — `skill://.kiro/skills/*/SKILL.md`
+    must be declared for skill content to preload."""
+    name = manifest.get("name")
+    if not name:
+        fail("agent.manifest.json has no name — required for the kiro-cli agent config filename")
     config = {
-        "name": manifest["name"],
+        "name": name,
         "description": manifest.get("description", ""),
         "prompt": None,
         "mcpServers": {},
@@ -1861,7 +1868,7 @@ def emit_kiro_cli_agent(manifest: dict, path: Path) -> None:
         "includeMcpJson": True,
         "model": None,
     }
-    write(path, json.dumps(config, indent=2, sort_keys=True) + "\n")
+    write(agents_dir / f"{name}.json", json.dumps(config, indent=2, sort_keys=True) + "\n")
 
 
 def target_kiro_cli(manifest: dict, out: Path) -> None:
@@ -1873,7 +1880,7 @@ def target_kiro_cli(manifest: dict, out: Path) -> None:
         copy_tree(d, out / "skills" / d.name)
     copy_sops(manifest, out)
     emit_mcp(manifest, out / "settings" / "mcp.json")
-    emit_kiro_cli_agent(manifest, out / "agents" / f"{manifest['name']}.json")
+    emit_kiro_cli_agent(manifest, out / "agents")
 
 
 def target_generic(manifest: dict, out: Path) -> None:
