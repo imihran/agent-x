@@ -1,6 +1,11 @@
 # Agent X Project Progress
 
-Last updated: after the kiro-cli target migration live verification (Task 5, 2026-09-04).
+Last updated: 2026-09-05, after merging to `main`, adding the template-sync
+workflow, and forking `agent-x-mish`.
+
+**New agent/session picking this up: read `docs/onboarding.md` first** — it's
+the "how development works here" guide (conventions, gotchas, the core dev
+loop). This file is the running state/history log, not the onboarding doc.
 
 ## Current goal
 
@@ -9,12 +14,25 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 ## Repository state
 
 - Local repo: `/home/mish/Documents/GitHub/agent-x`
-- Remote: `https://github.com/imihran/agent-x`
-- Working branch: `build/rebuild-spec-task-1`
+- Remote: `https://github.com/imihran/agent-x` (private)
+- Working branch: `main`. The long-lived `build/rebuild-spec-task-1` branch
+  that carried Tasks 1–14a and the kiro-cli migration was merged into `main`
+  and deleted (local + kept on origin at merge time; check before assuming
+  it still exists remotely) once `main`'s tests passed on the merged result.
+- A `dump` branch, also on origin, preserves the original 2-commit spec-dump
+  state of `main` from before any rebuild work — a permanent snapshot, not
+  meant to be developed on.
+- A real fork exists: `agent-x-mish`
+  (`/home/mish/Documents/GitHub/agent-x-mish`, own GitHub repo, private),
+  linked back to this repo via a `template` git remote. See
+  `docs/sync-workflow.md` for the full mechanics. `agent-x` itself must stay
+  free of Mish-specific content (no personal skills, no hardcoded personal
+  paths) — that belongs in `agent-x-mish` or other forks, not the template.
 - Main README: `README.md`
 - Preserved rebuild spec: `docs/spec/rebuild-spec.md`
-- Current latest pushed commit: `3364b46 feat: add Kiro agent launcher`
-- The kiro-cli target migration (see below) is committed locally on top of that but not yet pushed to `origin/build/rebuild-spec-task-1`.
+- Onboarding guide: `docs/onboarding.md`
+- Fork-sync guide: `docs/sync-workflow.md`
+- Current latest pushed commit: `9c9d209 docs: capture the template-sync workflow in full detail`
 
 ## User instructions / operating rules
 
@@ -235,84 +253,155 @@ the real installed `kiro-cli` binary — not just unit tests against isolated
    servers, no error. `.kiro/settings/mcp.json` is `{"mcpServers": {}}`,
    valid JSON, resolved cleanly via `includeMcpJson: true`.
 
-Full transcripts and step-by-step assessment: see
-`.superpowers/sdd/2026-09-04-kiro-cli-target-migration/task-5-report.md`.
+Full transcripts and step-by-step assessment lived at
+`.superpowers/sdd/2026-09-04-kiro-cli-target-migration/task-5-report.md`
+during implementation; that plan workspace was deleted after the final
+whole-branch review passed clean (standard subagent-driven-development
+cleanup) — the git history at the commits listed above is the durable
+record now. The full design rationale is preserved at
+`docs/superpowers/specs/2026-09-04-kiro-cli-target-migration-design.md` and
+the task-by-task plan at
+`docs/superpowers/plans/2026-09-04-kiro-cli-target-migration.md`.
+
+### Post-migration: welcome message, README docs, and template-sync tooling
+
+Commits (on `main`): `6b96209` feat: welcome message, README architecture
+docs, and template-sync tooling; `3c43f33` fix: clean each target's output
+dir before reassembling; `9c9d209` docs: capture the template-sync workflow
+in full detail.
+
+- `agent.manifest.json` gained a `version` field; `build/assemble.py`'s
+  `emit_kiro_cli_agent` now composes a `welcomeMessage` (author text +
+  `(v<version>)`) into the emitted kiro-cli agent config — live-verified:
+  `kiro-cli chat --agent agent-x` shows "Agent X — ready to help. (v0.1.0)"
+  before its first response.
+- README gained a "How it works" section (assembly pipeline + routing-gate
+  Mermaid diagrams, the five-context-tier table) and a worked end-to-end
+  example tracing `demo-skill`'s "run the demo" through the real
+  routing/skill/guardrail/toolkit flow — live-verified against `kiro-cli`,
+  including the confirm-before-execute gate holding even with shell
+  execution fully trusted, and annotated as such in README.
+- **Real bug found and fixed**: `build/assemble.py` never cleaned
+  `dist/<target>/` between runs, so renaming an agent (or anything else
+  changing an output filename) left orphaned files behind that
+  `build/deploy.py` then faithfully copied into `.kiro/` too. Found live
+  while personalizing `agent-x-mish`'s manifest name — `kiro-cli agent
+  list` showed a phantom `agent-x` entry that didn't match the current
+  manifest. Fixed test-first (`test_reassembling_into_same_out_dir_removes_
+  stale_files_from_prior_run`, confirmed RED then GREEN); `main()` now
+  `rmtree`s the target's own output dir before writing, same pattern
+  `build/deploy.py` already used for `.kiro/`.
+- `build/sync_template.py` added: lets a fork pull updates from this repo
+  via a `template` git remote (fetch, `--no-ff` merge so every sync leaves
+  a visible commit, conflicts reported not auto-resolved, `build/ci.py` run
+  automatically after a clean merge, never pushes). Full mechanics,
+  including the recurring `agent.manifest.json` conflict pattern and a
+  worked example with real commit SHAs, documented in
+  `docs/sync-workflow.md`.
+
+### Forked `agent-x-mish` and proved the sync loop end to end
+
+Not commits on `agent-x`'s own history (this repo stayed the template), but
+material state worth recording here since it's this repo's first real fork:
+
+- `agent-x-mish` (`/home/mish/Documents/GitHub/agent-x-mish`) was created —
+  an empty repo populated by merging this repo's full history in with
+  `--allow-unrelated-histories`, then personalizing `agent.manifest.json`'s
+  `name` to `agent-x-mish` (which required fixing several tests that
+  hardcoded `agent-x` against the real manifest — see `docs/sync-workflow.md`).
+- Proved the fork-sync loop for real: added a fork-local skill
+  (`mish-notes`) in `agent-x-mish`, made the stale-`dist/`-files fix above
+  in `agent-x` as a genuine "minor template update," then ran `python3
+  build/sync_template.py` in `agent-x-mish` — clean merge (no conflict,
+  since the update touched files the fork never had), `build/ci.py` ran
+  automatically and passed. Both the fork-local skill and the template fix
+  coexisted correctly afterward.
+- Also ported a real personal skill from an unrelated tool (a Hermes Agent
+  skill at `~/.hermes/skills/devops/mish-hermes-host-topology/SKILL.md`)
+  into `agent-x-mish` as `mish-host-topology` — reshaped into this
+  template's `SKILL.md`/routing/manifest wiring format, live-verified to
+  activate correctly and answer using the real ported knowledge.
 
 ## Current verification status
 
-Latest verified live against the installed `kiro-cli` 2.20.1 (Task 5, kiro-cli
-target migration — this is a real binary run, not just tests against
-`tmp_path` copies):
+Latest verified 2026-09-05 on `main`, against the real installed `kiro-cli`
+2.20.1 binary (not just tests against `tmp_path` copies):
 
 ```text
 python3 build/ci.py
 WIRING VALIDATION: PASS (all capabilities) — fully wired
 TOOL CONTRACT: AGREE
 CLI REFERENCES: AGREE
-105 passed in 3.92s
+115 passed in ~5s
 assembled target=claude-code out=<repo>/dist/claude-code
 assembled target=kiro-cli out=<repo>/dist/kiro-cli
 assembled target=generic out=<repo>/dist/generic
 CI GATE: PASS — all stages green
 
-rm -rf .kiro dist && python3 build/deploy.py
-deployed agent-x to <repo>/.kiro
-source: <repo>/dist/kiro-cli
-files_written: 21
-
-ls .kiro
-agents  settings  skills  sops  steering
-
-kiro-cli agent list
-  agent-x       Workspace
-  kiro_default  (Built-in)   Default agent
-  kiro_help     (Built-in)   Help agent ...
-  kiro_planner  (Built-in)   Specialized planning agent ...
-
 kiro-cli chat --agent agent-x --no-interactive --trust-tools= "..."
+welcome message: "Agent X — ready to help. (v0.1.0)" displays before the
+first response — confirmed live.
 identity/guardrail probe: correctly names "Agent X" and cites the real
 `guardrails-no-fabrication.md`.
-skill-content probe: names a real activation phrase, but see the migration
-entry above / task-5 report — the probe doesn't cleanly isolate whether the
-skill:// resources entry or the always-loaded routing steering is the source.
-
-kiro-cli mcp list
-workspace: agent-x (empty) — no error; resolves against
-.kiro/settings/mcp.json ({"mcpServers": {}}).
+demo-skill full loop probe: "run the demo" correctly activates the gate
+(reads SKILL.md before any other tool call), runs the read path, proposes
+the gated write with an exact pre-execution summary citing its own source
+("demo-skill § Workflow step 2–3"), holds for confirmation even with shell
+execution fully trusted, then on confirmation executes and reports the
+toolkit's real `"verified": "read-back"` result — full loop genuinely
+confirmed end to end, not just the activation step.
 ```
 
-System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv` for local ad-hoc pytest runs, but `python3 build/ci.py` with the system `python3` (used above) also runs the full suite (105 tests) directly — no venv activation needed for the CI gate itself.
+`agent-x-mish` (the fork) independently confirms the same shape:
+`python3 build/ci.py` green there too (115 passed), `mish-notes` and
+`mish-host-topology` (fork-local skills) both live-verified to activate
+correctly via real `kiro-cli` sessions.
+
+System Python does not have pytest installed as a separate package; running
+`python3 build/ci.py` or `python3 -m pytest tests/` with the system
+`python3` works directly (confirmed repeatedly this session) — no venv
+needed for the CI gate itself.
 
 ## Material blockers / gotchas
 
-- GitHub token lacks `workflow` scope. Do not commit `.github/workflows/*` until auth is refreshed with workflow scope, or the push will be rejected. Re-checked 2026-09-04 via `gh auth status`: token scopes are still `gist`, `read:org`, `repo` — no `workflow`.
-- Initial Kiro layout validation passed after Task 11/12 against the GUI-oriented `kiro` target. That target was retargeted to the real installed `kiro-cli` tool (see "Kiro-cli target migration" above), and full live/interactive verification against the actual `kiro-cli` 2.20.1 binary has now been performed (Task 5) — deploy, `agent list`, steering/guardrail loading, skill discoverability, and `mcp list` all confirmed working, with one nuance noted about skill body preloading (see above).
-- Generated/cache files should be removed before commits: `dist/`, `.pytest_cache/`, `tests/__pycache__/`.
-- The full 3,324-line rebuild spec is preserved at `docs/spec/rebuild-spec.md`; README is now a concise operator-facing summary.
+- **GitHub token still lacks `workflow` scope** (Task 14b remains blocked —
+  see below). Re-checked 2026-09-05 via `gh auth status`: token scopes are
+  `gist`, `read:org`, `repo` — no `workflow`. Do not commit
+  `.github/workflows/*` until this is refreshed, or the push will be
+  rejected.
+- `build/assemble.py` used to leave stale files in `dist/<target>/` across
+  runs with different manifest settings — fixed (`3c43f33`). See
+  `docs/onboarding.md`'s "Known gotchas" for the symptom
+  (`rm -rf dist .kiro` if you ever see a phantom agent).
+- Generated/cache files should be removed before commits: `dist/`,
+  `.pytest_cache/`, `tests/__pycache__/`, `.kiro/` (all gitignored).
+- The full 3,324-line rebuild spec is preserved at
+  `docs/spec/rebuild-spec.md`; README is a concise operator-facing summary;
+  `docs/onboarding.md` is the "how to work here" guide for a new
+  agent/session.
 
 ## Next task
 
-The kiro-cli target migration (assembler → deploy → launcher → docs → live
-verification) is now done and live-verified against the real installed
-`kiro-cli` 2.20.1 binary — see "Kiro-cli target migration" above.
+No active development task right now — the kiro-cli migration, the
+welcome-message/README/sync-tooling additions, and the `agent-x-mish` fork
+are all done, live-verified, committed, and pushed.
 
-The only outstanding item carried over from before this migration is still
-Task 14b, and it is still blocked the same way:
+The only outstanding item, carried over unchanged from before all of the
+above, is still Task 14b:
 
 Finish Task 14b when GitHub auth has `workflow` scope:
 - Add `.github/workflows/validate.yml` as the vendor binding around `python3 build/ci.py`.
 - Verify the workflow file locally with syntax/read checks and rerun `python3 build/ci.py`.
 - Commit and push only after `gh auth status` includes `workflow`.
 
-Re-checked 2026-09-04: `gh auth status` still reports scopes `gist`,
+Re-checked 2026-09-05: `gh auth status` still reports scopes `gist`,
 `read:org`, `repo` only — no `workflow` — so this remains blocked on an auth
 refresh, not code.
 
-Also outstanding: the kiro-cli migration commits (see above) are committed
-locally but not yet pushed to `origin/build/rebuild-spec-task-1` — push when
-ready.
-
-If workflow scope is not available yet, proceed to the next non-workflow task from Section 20 after reading its exact scope from `docs/spec/rebuild-spec.md`.
+If workflow scope is not available yet, proceed to the next non-workflow
+task from Section 20 after reading its exact scope from
+`docs/spec/rebuild-spec.md` — or, if picking this up as a new
+agent/session, read `docs/onboarding.md` first regardless.
 
 ## Suggested skills for next session
 

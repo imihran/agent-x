@@ -255,3 +255,7 @@ For the full walkthrough — the one-time bootstrap, exactly what an `agent.mani
 ## Wiring a new capability
 
 Follow the rebuild spec's capability wiring procedure in `docs/spec/rebuild-spec.md`. The validator is the authority for whether the capability is actually wired.
+
+## New to this repo?
+
+If you're picking up development here — a new agent/session, or a human contributor — start with `docs/onboarding.md`. It covers the core dev loop (test-first, run `python3 build/ci.py`, keep the spec doc in sync with code), known gotchas already hit once, and where the deeper docs (`docs/spec/rebuild-spec.md`, `docs/sync-workflow.md`, `docs/progress/PROJECT_PROGRESS.md`) each fit in.
