@@ -18,7 +18,9 @@
     "conventions/*"
   ],
   "sopNames": [],
-  "subagentNames": [],
+  "subagentNames": [
+    "readonly-investigator"
+  ],
   "mcpServers": {},
   "tools": [],
   "allowedTools": [],

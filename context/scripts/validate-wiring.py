@@ -303,6 +303,46 @@ def check_readme_skill_count(only: str | None) -> None:
         warn("README.md", f"says skills/ ({stated}); found {actual} on disk")
 
 
+def check_subagents(manifest: dict, only: str | None) -> None:
+    """Task 13 optional layer checks: declared subagents must exist, and the
+    packaged readonly-investigator must be read-only by tool scope, not by
+    prompt convention."""
+    if only:
+        return
+    declared = set(manifest.get("subagentNames", []))
+    on_disk = {p.name.removesuffix(".agent.json") for p in AGENTS_DIR.glob("*.agent.json")} \
+        if AGENTS_DIR.is_dir() else set()
+    for name in sorted(declared - on_disk):
+        error(f"subagentNames:{name}",
+              f"declared in the manifest but agents/{name}.agent.json does not exist")
+    for name in sorted(on_disk - declared):
+        warn(f"agents/{name}", "exists but is not declared in subagentNames")
+
+    path = AGENTS_DIR / "readonly-investigator.agent.json"
+    if not path.is_file():
+        return
+    subagent = load_json(path) or {}
+    subject = "agents/readonly-investigator"
+    if subagent.get("name") != "readonly-investigator":
+        error(subject, "manifest name must be readonly-investigator")
+    includes = subagent.get("systemPromptIncludes", [])
+    for rel in includes:
+        if not (ROOT / rel).is_file():
+            error(f"{subject}:{rel}", "systemPromptIncludes entry is missing on disk")
+    allowed = set(subagent.get("allowedTools", []))
+    if allowed != {"read"}:
+        error(subject, "allowedTools must contain only read")
+    write_like = {"write", "edit", "delete", "create", "update", "patch"}
+    tools = {str(t).lower() for t in subagent.get("tools", [])}
+    if tools & write_like:
+        error(subject, f"tools contains write-capable entries: {sorted(tools & write_like)}")
+    for pattern in subagent.get("shellAllowedCommands", []):
+        if not re.search(r"\(list\|get\|search\|discover\|authcheck\)", pattern):
+            error(subject, "shellAllowedCommands must be limited to toolkit read verbs")
+        if re.search(r"\b(create|update|delete)\b", pattern):
+            error(subject, "shellAllowedCommands includes write verbs")
+
+
 def check_prompt_includes(manifest: dict, only: str | None) -> None:
     """Checks #15-16: every systemPromptIncludes entry must exist on disk
     and the list must be sorted by numeric filename prefix (#15) — the
@@ -369,6 +409,7 @@ def main() -> int:
     check_declared_sops(manifest, args.skill)
     check_readme_agents(manifest, args.skill)
     check_readme_skill_count(args.skill)
+    check_subagents(manifest, args.skill)
     check_prompt_includes(manifest, args.skill)
     check_routing_core(args.skill)
 

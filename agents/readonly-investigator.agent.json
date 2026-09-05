@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1",
+  "name": "readonly-investigator",
+  "description": "Read-only investigation subagent, dispatched by the orchestrator for diagnostic work. Read-only BY TOOL SCOPE: its allowlist contains no write tools and its shell allowlist matches read verbs only.",
+  "systemPromptIncludes": [
+    "context/prompts/readonly-investigator.md"
+  ],
+  "skillNames": [],
+  "contextGlobs": [
+    "guardrails/*",
+    "knowledge/*"
+  ],
+  "mcpServers": {},
+  "tools": [
+    "read",
+    "shell"
+  ],
+  "allowedTools": [
+    "read"
+  ],
+  "shellAllowedCommands": [
+    "^python3 tool/toolkit/toolkit\\.py (list|get|search|discover|authcheck)( .*)?$"
+  ]
+}
