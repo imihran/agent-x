@@ -129,6 +129,8 @@ To make kiro-cli actually load Agent X in this workspace, deploy generated files
     python3 build/deploy.py
     kiro-cli chat --agent agent-x
 
+`.kiro/` is generated output — `build/deploy.py` deletes and rewrites the whole tree on every run. Declare MCP servers in `agent.manifest.json`, not via `kiro-cli mcp add`; edits made directly under `.kiro/` (including via `kiro-cli mcp add`) do not survive the next deploy.
+
 For repeatable kiro-cli testing and agent switching, use the launcher:
 
     python3 build/kiro_agent.py --agent . --prompt "Run the demo skill" --dry-run

@@ -4,7 +4,7 @@ Last updated: after the kiro-cli target migration live verification (Task 5, 202
 
 ## Current goal
 
-Build the Agent Capability Package from the rebuild specification. This is primarily a Kiro agent/capability package; Claude Code support is secondary. Claude Code is being used as the implementation agent. Kiro layout validation has begun and should become fuller runtime/load validation as the base package matures.
+Build the Agent Capability Package from the rebuild specification. This is primarily a kiro-cli agent/capability package; Claude Code support is secondary. Claude Code is being used as the implementation agent. kiro-cli layout validation has begun and should become fuller runtime/load validation as the base package matures.
 
 ## Repository state
 
@@ -24,7 +24,7 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 - Maintain this progress file as work proceeds so a new session can resume if context runs out.
 - Keep `agent-x` generic: no Mish-specific data, no secrets, no hardcoded personal paths in shipped source.
 - `agent-x` is a placeholder/codename; keep naming easy to change.
-- Primary runtime target is Kiro. Claude Code is the implementer and secondary artifact target.
+- Primary runtime target is kiro-cli. Claude Code is the implementer and secondary artifact target.
 
 ## Completed rebuild tasks
 

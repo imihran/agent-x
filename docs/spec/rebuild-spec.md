@@ -1694,8 +1694,17 @@ source of truth):
   unconditionally, regardless of what that agent's `resources` field
   declares. `resources` still lists it explicitly, since relying on an
   unstated default is fragile across kiro-cli versions.
-- `.kiro/skills/*/SKILL.md` does **not** auto-load — it requires an explicit
-  `"skill://.kiro/skills/*/SKILL.md"` entry in `resources`.
+- `.kiro/skills/*/SKILL.md` loads progressively, not eagerly. With
+  `"skill://.kiro/skills/*/SKILL.md"` declared in `resources`,
+  description-level metadata (SKILL.md's frontmatter `description`) is
+  visible at session start, while the full SKILL.md body was not observed in
+  context without a tool-based file read — matching kiro-cli's documented
+  "metadata loads at startup, full content loads on demand." What the entry
+  contributes beyond that was not isolated: no deploy *without* the entry was
+  tested, and the activation phrases a session can quote unprompted are also
+  present in the always-loaded steering routing table
+  (`routing-10-domain-template.md`). Skill routing and discoverability are
+  unaffected either way; the entry stays declared.
 - `includeMcpJson: true` reads `.kiro/settings/mcp.json` — not a top-level
   `.kiro/mcp.json`.
 - A relative `file://` resource path resolves against the workspace root
@@ -1849,8 +1858,14 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
     (2026-09-04): steering (`.kiro/steering/**/*.md`) auto-loads for every
     agent regardless of `resources`, but it's still declared explicitly here
     so this doesn't depend on an unstated default that could change across
-    versions. Skills do NOT auto-load — `skill://.kiro/skills/*/SKILL.md`
-    must be declared for skill content to preload."""
+    versions. Skills load progressively: with
+    `skill://.kiro/skills/*/SKILL.md` declared, description-level metadata is
+    visible at session start, while the full SKILL.md body was not observed
+    in context without a tool-based read — matching kiro-cli's documented
+    "metadata loads at startup, full content loads on demand." A deploy
+    without the entry was not tested, so what it contributes beyond that is
+    unconfirmed; it stays declared. Routing to skills is unaffected either
+    way."""
     name = manifest.get("name")
     if not name:
         fail("agent.manifest.json has no name — required for the kiro-cli agent config filename")

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Deploy a selected agent package into a Kiro workspace root.
+"""Deploy a selected agent package into a kiro-cli workspace root.
 
-Kiro loads agent configuration from `.kiro/` in the workspace root. The source
-package stays editable at repo root; this script assembles the selected agent's
-Kiro target and then copies the generated layout into `<workspace-root>/.kiro/`.
+kiro-cli loads agent configuration from `.kiro/` in the workspace root. The
+source package stays editable at repo root; this script assembles the
+selected agent's kiro-cli target and then copies the generated layout into
+`<workspace-root>/.kiro/`.
 
 Stdlib only. Idempotent: repeated runs produce the same `.kiro/` tree.
 """
@@ -130,7 +131,7 @@ def deploy(agent_root: Path, workspace_root: Path, clean: bool = True) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", default=str(ROOT), help="Agent source path or alias from agents/registry.local.json.")
-    parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where Kiro should load `.kiro/`.")
+    parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where kiro-cli should load `.kiro/`.")
     parser.add_argument("--no-clean", action="store_true", help="Do not remove existing .kiro before copying.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     args = parser.parse_args(argv)

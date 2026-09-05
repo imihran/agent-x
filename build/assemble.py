@@ -137,8 +137,14 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
     (2026-09-04): steering (`.kiro/steering/**/*.md`) auto-loads for every
     agent regardless of `resources`, but it's still declared explicitly here
     so this doesn't depend on an unstated default that could change across
-    versions. Skills do NOT auto-load — `skill://.kiro/skills/*/SKILL.md`
-    must be declared for skill content to preload."""
+    versions. Skills load progressively: with
+    `skill://.kiro/skills/*/SKILL.md` declared, description-level metadata is
+    visible at session start, while the full SKILL.md body was not observed
+    in context without a tool-based read — matching kiro-cli's documented
+    "metadata loads at startup, full content loads on demand." A deploy
+    without the entry was not tested, so what it contributes beyond that is
+    unconfirmed; it stays declared. Routing to skills is unaffected either
+    way."""
     name = manifest.get("name")
     if not name:
         fail("agent.manifest.json has no name — required for the kiro-cli agent config filename")
