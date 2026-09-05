@@ -18,13 +18,15 @@ Run `python3 context/scripts/validate-wiring.py` BEFORE making changes.
 **Constraints:**
 - You MUST record the baseline — because pre-existing findings must not be attributed to your change.
 
-### 2. Author the artifact
+### 2. Decide the shape, then author the artifact
 
-Skill: `skills/<name>/SKILL.md` with frontmatter (name, type, description, version). Guardrail: `context/guardrails/<name>.md` — no frontmatter; H1 names the rule; scope in the first paragraph; steering-practice closer.
+First decide how the capability splits between the eager and lazy layers — `docs/spec/rebuild-spec.md` §8.7 is the decision procedure (signal phrasing first; tight description, full body; `references/` by purpose not length; nothing skill-specific in the eager tiers; cite don't restate; re-partition don't duplicate; two-phase by risk). Then write it: Skill: `skills/<name>/SKILL.md` with frontmatter (name, type, description, version). Guardrail: `context/guardrails/<name>.md` — no frontmatter; H1 names the rule; scope in the first paragraph; steering-practice closer.
 
 **Constraints:**
 - You MUST make frontmatter `name` byte-identical to the directory name — because activation looks up by name.
 - You MUST write a description stating what AND when — because it is the routing signal; a bare label is not routable.
+- You MUST keep the description to one or two sentences — because it sits in the always-loaded skills index (P9); the `SKILL.md` body is lazy and carries the full procedure.
+- You MUST keep recurring safety-critical rules inline in the skill body, not deferred to `references/` — because progressive disclosure is unreliable mid-flow (step 6).
 - You MUST keep guardrails short — because they are loaded on every turn and paid for in context on every request.
 - You MUST NOT duplicate rule content that lives in another guardrail — cite it by path instead, because copies drift.
 
@@ -43,6 +45,7 @@ One row per user signal in the domain routing file, or `00-core.md` for session/
 **Constraints:**
 - You MUST phrase rows as user signals — because rows match what users say.
 - You MUST add a row for every entry path that could reach the skill — because a signal with no row never fires the gate.
+- You MUST re-partition an existing skill's rows to the more-specific owner rather than add a second claim on the same trigger vocabulary — because one phrase matching two skills is an ambiguous dispatch; re-verify both skills by live activation afterward (§8.7 step 6).
 - You MUST add a cross-cutting gate in `00-core.md` when the capability is reachable mid-flow from other skills.
 - You MUST register always-on skills in `alwaysOnSkills` in `wiring.config.json` and document their trigger in a prompt partial.
 

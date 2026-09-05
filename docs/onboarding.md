@@ -97,22 +97,26 @@ structural change to `context/`, `skills/`, or the assembler.
 
 1. Before changing anything, confirm `python3 build/ci.py` is green on the
    current tree — that's your baseline.
-2. Write the failing test first. This repo's own suite is TDD-disciplined
+2. If the change adds or ports a skill, decide its shape first — what it
+   costs in the eager tiers vs. what stays lazy — per
+   `sops/wire-new-capability.sop.md` step 2 and `docs/spec/rebuild-spec.md`
+   §8.7.
+3. Write the failing test first. This repo's own suite is TDD-disciplined
    (RED before GREEN) — `tests/test_assemble.py` and friends show the
    pattern: isolated `tmp_path` copies, real subprocess invocations, real
    file assertions, never mocks.
-3. Implement the minimal fix.
-4. Rerun the specific test, then the full `python3 build/ci.py` gate. Both
+4. Implement the minimal fix.
+5. Rerun the specific test, then the full `python3 build/ci.py` gate. Both
    must be green before you call anything done.
-5. If you touched one of `build/assemble.py`'s target functions (or
+6. If you touched one of `build/assemble.py`'s target functions (or
    anything `docs/spec/rebuild-spec.md` documents as a code listing),
    update that listing to match. This repo has shipped real drift between
    the spec and the code before — don't add more of it.
-6. Commit in small, single-concern steps; push after each. This matches
+7. Commit in small, single-concern steps; push after each. This matches
    the working convention already recorded in
    `docs/progress/PROJECT_PROGRESS.md`'s "User instructions / operating
    rules".
-7. If the change is new tooling (not a bugfix), decide whether README needs
+8. If the change is new tooling (not a bugfix), decide whether README needs
    a new section and whether your progress log (`PROJECT_PROGRESS.md` in
    the template, `FORK_NOTES.md` in a fork) needs a new entry.
 

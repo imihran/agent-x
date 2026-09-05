@@ -45,6 +45,8 @@ Each principle below is a requirement on the rebuilt package, not a suggestion.
 
 **P8 — Safety is structural where possible.** Where the runtime supports tool allowlists, write safety MUST be enforced by tool scope (a read-only agent has only read tools), not by prompt text. "Ask before writes" enforced by the runtime cannot be rationalized away by the model; prompt-level rules remain as the layer for hosts without structural enforcement.
 
+**P9 — Lazy footprint.** A capability minimizes what it adds to the eager tiers — `routing/`, `guardrails/`, `knowledge/`, `conventions/`, and each skill's `description` (which sits in the always-loaded skills index) — because those are re-read on every turn, on-topic or not. Everything else belongs in the skill body, its `references/`, or the docs it cites, all of which load only when the pre-flight gate (P2) fires. A capability's eager cost is its routing row, its `description`, and any `00-core.md` disambiguation; the procedure itself is lazy. Section 8.7 is the decision procedure. This is hygiene that compounds with skill count, not a hard limit — a genuinely cross-cutting fact still earns an eager row (§5.4), and the eager topology stays viable until it outgrows roughly two thousand words (§5.6).
+
 ---
 
 ## 3. Package Layout
@@ -1133,6 +1135,67 @@ version: 1.0
 - `references/` — {{extended reference material}}
 ```
 
+### 8.7 Deciding a capability's shape
+
+Before authoring a skill (or porting one in from another framework), decide how
+it is split between the eager and lazy layers (P9). Work through this in order:
+
+1. **Signal phrasing first.** The routing row is what makes the skill load at
+   all — a vague trigger phrase means the pre-flight gate misses and the agent
+   proceeds on eager context alone. Phrase rows as the words a user actually
+   says, add one for every entry path, and verify by live activation, not just
+   by the wiring validator (which only checks that a declared skill is
+   *mentioned* in routing, §17.1).
+
+2. **Keep the `description` tight; let the body run as long as the procedure
+   needs.** The `description` is in the eager skills index — one or two
+   sentences stating what and when (§8.1). The `SKILL.md` body is lazy: once
+   the gate fires you are in the flow and you want the whole procedure in
+   context. Do not shorten a body below what the procedure requires just to
+   move text into `references/`.
+
+3. **Split `references/` by purpose, not by length.** Bulky lookup tables,
+   worked examples, templates, and sub-branch procedure belong in `references/`
+   and load only when the body points into them (§8.2). Recurring
+   safety-critical rules — the two or three things that bite on every run —
+   stay inline in the body: progressive disclosure is less reliable mid-flow,
+   where the agent acts on the step in front of it (§10.4 step 6).
+
+4. **Nothing skill-specific in `knowledge/` or `conventions/`.** Those globs
+   load every turn. A fact earns an eager row only if it is genuinely
+   cross-cutting — it disambiguates routing itself, or names a tool response
+   that deceives the same way across many unrelated flows (§11.4). When it is
+   a judgement call, default to lazy: carry it in the skill.
+
+5. **Cite, do not restate (P3).** If a rule, fact, or workflow already has an
+   owner — another skill, an SOP, an external workspace doc — point at it by
+   path. Restating it creates a second copy that drifts. Citing a doc *outside
+   this package* (e.g. a fork skill pointing at a personal workspace file) is
+   allowed only when the environment is known, and the citing step MUST first
+   establish the precondition that the doc is present — an off-environment
+   citation is a dangling pointer, and cross-repo drift is not caught by any
+   validator here.
+
+6. **Re-partition; do not duplicate routing vocabulary.** If a new skill's
+   signals overlap an existing skill's rows, move the rows to the more-specific
+   owner and add a disambiguation block in `00-core.md` (§6.6) — then re-verify
+   both skills by live activation, since the moved rows invalidate the earlier
+   check. If resolving the overlap needs three or more disambiguation lines,
+   the signal vocabulary itself is wrong: rename the signals instead.
+
+7. **Two-phase by risk.** Ship the read/diagnostic dispatcher first; it is the
+   low-risk half. The mutation skill and its SOP are written when the
+   side-effecting path's risk is understood — P7 governs when *structure*
+   follows friction, but safety scaffolding for a high-stakes mutation
+   (sending mail, publishing, deleting) is written before the first run, not
+   deferred to it.
+
+The `generic` assembly target concatenates everything and does not benefit from
+any of this; the split pays off on `claude-code` and `kiro-cli`, where skills
+load on activation. When one domain routing file passes roughly fifteen rows,
+split it into multiple `NN-<name>.md` files (§6) rather than letting the eager
+table grow unbounded.
+
 ---
 
 ## 9. SOP Format
@@ -1168,6 +1231,7 @@ Rules:
 - SOPs that modify the package MUST open with a **baseline step**: run the validator BEFORE editing, so pre-existing findings are not attributed to the current change.
 - No hardcoded dates, identifiers, or environment-specific values in SOPs — parameters carry those.
 - **No-playbook escape hatch:** when no SOP covers the situation, the agent says: *"No playbook for this yet. Here's what I found: [summary]. What direction should I take?"* — it does not improvise a procedure silently.
+- An SOP for a high-stakes side-effecting procedure (sending, publishing, deleting) is authored **before that procedure's first run**, not deferred to first friction — P7 governs when structure follows friction, but safety scaffolding precedes it (§8.7 step 7).
 
 ### 9.2 Template — `sops/adversarial-review.sop.md`
 
@@ -1304,9 +1368,9 @@ Run `python3 context/scripts/validate-wiring.py` before changing anything.
 **Skill — nine steps:**
 
 1. Run the validator to record the baseline — pre-existing findings are not yours.
-2. Create `skills/<name>/SKILL.md` with the four frontmatter fields (8.1): `name` byte-identical to the directory (activation resolves by name), `type: skill`, `description` stating what AND when (it is the routing signal), `version`.
+2. Decide the capability's shape (8.7) — eager cost vs. lazy body — then create `skills/<name>/SKILL.md` with the four frontmatter fields (8.1): `name` byte-identical to the directory (activation resolves by name), `type: skill`, `description` stating what AND when in one or two sentences (it is the routing signal and sits in the eager skills index), `version`.
 3. Add `<name>` to `skillNames` in the manifest — an undeclared skill can never be activated.
-4. Add a routing row phrased as a user signal — matched against what the user *says*, not the capability's internal name. Add a row for **every** entry path that could reach the skill, not just the obvious one.
+4. Add a routing row phrased as a user signal — matched against what the user *says*, not the capability's internal name. Add a row for **every** entry path that could reach the skill, not just the obvious one. If a signal overlaps an existing skill's rows, re-partition rather than duplicate (8.7).
 5. If the skill is reachable **mid-flow from inside other skills** (drafting, notifying, publishing), a row is insufficient: add a cross-cutting gate to `00-core.md` (6.5) — rows are skipped when a step is reached organically.
 6. If the skill is **always-on** (fires from identity behavior, not from a user signal): no routing row at all. Document its trigger in a prompt partial and register it in `alwaysOnSkills` in `wiring.config.json` — otherwise the validator correctly flags it as unroutable.
 7. If it owns an output template, state in the routing file that activation is mandatory and no guardrail substitutes (8.4).
@@ -1366,8 +1430,13 @@ Run `python3 context/scripts/validate-wiring.py` BEFORE making changes.
 - You MUST record the baseline — because pre-existing findings must not be
   attributed to your change.
 
-### 2. Author the artifact
-Skill: `skills/<name>/SKILL.md` with frontmatter (name, type, description,
+### 2. Decide the shape, then author the artifact
+First decide how the capability splits between the eager and lazy layers —
+`docs/spec/rebuild-spec.md` §8.7 is the decision procedure (signal phrasing
+first; tight description, full body; `references/` by purpose not length;
+nothing skill-specific in the eager tiers; cite don't restate; re-partition
+don't duplicate; two-phase by risk). Then write it: Skill:
+`skills/<name>/SKILL.md` with frontmatter (name, type, description,
 version). Guardrail: `context/guardrails/<name>.md` — no frontmatter; H1
 names the rule; scope in the first paragraph; steering-practice closer.
 
@@ -1376,6 +1445,12 @@ names the rule; scope in the first paragraph; steering-practice closer.
   because activation looks up by name.
 - You MUST write a description stating what AND when — because it is the
   routing signal; a bare label is not routable.
+- You MUST keep the description to one or two sentences — because it sits in
+  the always-loaded skills index (P9); the `SKILL.md` body is lazy and
+  carries the full procedure.
+- You MUST keep recurring safety-critical rules inline in the skill body,
+  not deferred to `references/` — because progressive disclosure is
+  unreliable mid-flow (step 6).
 - You MUST keep guardrails short — because they are loaded on every turn and
   paid for in context on every request.
 - You MUST NOT duplicate rule content that lives in another guardrail — cite
@@ -1400,6 +1475,10 @@ session/escalation scope).
 - You MUST add a row for every entry path that could reach the skill —
   because a signal with no row never fires the gate, and the skill's
   procedures stay out of context exactly when they are needed.
+- You MUST re-partition an existing skill's rows to the more-specific owner
+  rather than add a second claim on the same trigger vocabulary — because
+  one phrase matching two skills is an ambiguous dispatch; re-verify both
+  skills by live activation afterward (§8.7 step 6).
 - You MUST add a cross-cutting gate in `00-core.md` when the capability is
   reachable mid-flow from other skills — because routing rows are skipped
   when a step is reached organically.
