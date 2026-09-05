@@ -1,18 +1,19 @@
 # Agent X Project Progress
 
-Last updated: after README Section 20 Task 10.
+Last updated: after README Section 20 Task 12.
 
 ## Current goal
 
-Build the Agent Capability Package from the README rebuild specification. This is primarily a Kiro agent/capability package; Claude Code support is secondary. Claude Code is being used as the implementation agent. Kiro should be used later to validate that the generated/base agent can actually load.
+Build the Agent Capability Package from the rebuild specification. This is primarily a Kiro agent/capability package; Claude Code support is secondary. Claude Code is being used as the implementation agent. Kiro layout validation has begun and should become fuller runtime/load validation as the base package matures.
 
 ## Repository state
 
 - Local repo: `/home/mish/Documents/GitHub/agent-x`
 - Remote: `https://github.com/imihran/agent-x`
 - Working branch: `build/rebuild-spec-task-1`
-- Main spec: `README.md`
-- Current latest pushed commit: `988fd92 feat: add anti-drift guard validation`
+- Main README: `README.md`
+- Preserved rebuild spec: `docs/spec/rebuild-spec.md`
+- Current latest pushed commit: `b453ec7 feat: add generic base capabilities`
 - All completed implementation steps have been committed and pushed to `origin/build/rebuild-spec-task-1`.
 
 ## User instructions / operating rules
@@ -24,7 +25,6 @@ Build the Agent Capability Package from the README rebuild specification. This i
 - Keep `agent-x` generic: no Mish-specific data, no secrets, no hardcoded personal paths in shipped source.
 - `agent-x` is a placeholder/codename; keep naming easy to change.
 - Primary runtime target is Kiro. Claude Code is the implementer and secondary artifact target.
-- Validate Kiro loading once a very base agent / Kiro target exists, likely after Task 11 or Task 12.
 
 ## Completed rebuild tasks
 
@@ -91,13 +91,30 @@ Commit: `988fd92 feat: add anti-drift guard validation`
 
 Implemented `guards/check-tool-contract.py`, `guards/check-cli-references.py`, and discriminate tests proving the guards return 0 for agreement, 1 for drift, and 2 for unverifiable inputs. Also fixed one README prose collision where the CLI reference guard correctly treated `toolkit.py missing` as a bad command reference.
 
+### Task 11 — Target adapters
+
+Commit: `7bbd00b feat: add target adapters`
+
+Implemented assembler targets for Kiro, Claude Code, and generic output. Verified deterministic target assembly and performed initial Kiro artifact/layout validation. Kiro target output includes steering, `mcp.json`, and declared skills.
+
+### Task 12 — Generic base capabilities
+
+Commit: `b453ec7 feat: add generic base capabilities`
+
+Implemented generic package capabilities:
+- `context/scripts/preflight.py` for machine-readable preflight state and tool-surface output.
+- `context/scripts/discover.py` for discoverability metadata.
+- Declared base skills: `session-feedback`, `escalation-handoff`, and `demo-skill`.
+- Moved the full rebuild spec out of the active README into `docs/spec/rebuild-spec.md` and replaced README with a concise operating README.
+- Removed `.gitkeep` placeholders from directories that now contain real files so assembled targets are clean.
+
 ## Current verification status
 
-Latest verified after Task 8:
+Latest verified after Task 12:
 
 ```text
 /tmp/agent-x-venv/bin/python -m pytest tests/ -q
-53 passed
+77 passed
 
 python3 context/scripts/validate-wiring.py --strict
 WIRING VALIDATION: PASS (all capabilities) — fully wired
@@ -108,7 +125,16 @@ TOOL CONTRACT: AGREE
 python3 guards/check-cli-references.py
 CLI REFERENCES: AGREE
 
-python3 build/assemble.py --target generic --out /tmp/agent-x-summary-assemble
+python3 context/scripts/preflight.py --with-discovery
+exit 0; emits PREFLIGHT_STATE v1 and TOOL_SURFACE v1 blocks
+
+python3 build/assemble.py --target kiro --out /tmp/agent-x-task12-kiro-final
+assembled successfully; Kiro layout includes steering/00-system.md, mcp.json, and declared skills; no .gitkeep artifacts
+
+python3 build/assemble.py --target claude-code --out /tmp/agent-x-task12-claude-final
+assembled successfully
+
+python3 build/assemble.py --target generic --out /tmp/agent-x-task12-generic-final
 assembled successfully
 ```
 
@@ -117,19 +143,21 @@ System Python does not have pytest installed. Current test venv is `/tmp/agent-x
 ## Material blockers / gotchas
 
 - GitHub token lacks `workflow` scope. A previous push containing `.github/workflows/.gitkeep` was rejected. Avoid adding `.github/workflows/*` until Task 14 and/or token scope is fixed.
-- Kiro validation has not run yet because Kiro target artifacts are not implemented until Task 11.
+- Initial Kiro layout validation passed after Task 11/12, but full interactive Kiro load/runtime validation has not yet been performed.
 - Generated/cache files should be removed before commits: `dist/`, `.pytest_cache/`, `tests/__pycache__/`.
+- The full 3,324-line rebuild spec is preserved at `docs/spec/rebuild-spec.md`; README is now a concise operator-facing summary.
 
 ## Next task
 
-Proceed with README Section 20 Task 11 — Target adapters.
+Proceed with README Section 20 Task 13 — likely SOPs and/or next wiring layer from the preserved rebuild spec. Before starting, read the relevant Task 13 section from `docs/spec/rebuild-spec.md` and keep Kiro as the primary target.
 
-Expected scope:
-- Complete `build/assemble.py` for `claude-code`, `kiro`, and `generic` targets per README Section 13.2/13.3.
-- Kiro is the primary target; after Task 11, perform an initial Kiro artifact/layout validation.
-- Verify deterministic output across two runs.
-- Do not implement generic capabilities, optional layers, SOPs, hooks, CI, or GitHub workflow yet.
-- After implementation, verify with pytest, validator strict, both anti-drift guards, and assembler smoke for all targets, then commit and push.
+Expected verification before the next commit:
+- `/tmp/agent-x-venv/bin/python -m pytest tests/ -q`
+- `python3 context/scripts/validate-wiring.py --strict`
+- `python3 guards/check-tool-contract.py`
+- `python3 guards/check-cli-references.py`
+- `python3 context/scripts/preflight.py --with-discovery`
+- assembler smoke for `kiro`, `claude-code`, and `generic`
 
 ## Suggested skills for next session
 
