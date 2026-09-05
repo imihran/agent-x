@@ -1,6 +1,6 @@
 # Agent X Project Progress
 
-Last updated: after Kiro launcher/switcher.
+Last updated: after the kiro-cli target migration live verification (Task 5, 2026-09-04).
 
 ## Current goal
 
@@ -14,7 +14,7 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 - Main README: `README.md`
 - Preserved rebuild spec: `docs/spec/rebuild-spec.md`
 - Current latest pushed commit: `3364b46 feat: add Kiro agent launcher`
-- All completed implementation steps have been committed and pushed to `origin/build/rebuild-spec-task-1`.
+- The kiro-cli target migration (see below) is committed locally on top of that but not yet pushed to `origin/build/rebuild-spec-task-1`.
 
 ## User instructions / operating rules
 
@@ -159,54 +159,158 @@ Added `build/kiro_agent.py`, a repeatable Kiro launcher that:
 
 Added `tests/test_kiro_agent_runner.py` and README usage notes. `.kiro-agents/` and `agents/registry.local.json` are gitignored.
 
+### Kiro-cli target migration — assembler, deploy, launcher, docs, and live verification (Tasks 1–5)
+
+Commits: `23c4aa8` docs: add kiro-cli target migration design, `38c07f4` docs: add
+kiro-cli target migration implementation plan, `97d28f9` feat: replace kiro
+assembler target with kiro-cli, `5a7b309` fix: guard missing manifest name
+before building kiro-cli agent path, `f73c5ff` feat: deploy the kiro-cli
+layout instead of the GUI kiro layout, `3165cab` feat: launch kiro-cli chat
+--agent instead of the GUI's kiro chat --profile, `8bb18eb` docs: amend
+canonical spec and README for the kiro-cli target, `871766e` docs: fix
+emit_kiro_cli_agent listing to match the guarded implementation.
+
+The machine actually installed on this box is `kiro-cli` (a terminal tool,
+v2.20.1) — a different product from the Kiro GUI editor the original `kiro`
+target was built for. This migration retargeted the whole chain to the real
+binary:
+
+- `build/assemble.py`: `target_kiro_cli` + `emit_kiro_cli_agent` replace the
+  old GUI-oriented `target_kiro`. Output layout is
+  `dist/kiro-cli/{steering,skills,sops,settings/mcp.json,agents/<name>.json}`
+  — no `hooks/`, since kiro-cli's default engine has no hook runtime. The
+  emitted agent JSON declares `resources: ["file://.kiro/steering/**/*.md",
+  "skill://.kiro/skills/*/SKILL.md"]` and `includeMcpJson: true`.
+- `build/deploy.py`: deploys `dist/kiro-cli`'s tree into `<repo>/.kiro/`
+  (previously deployed the GUI `kiro` layout).
+- `build/kiro_agent.py`: launches `kiro-cli chat --agent <name>` (previously
+  `kiro chat --mode agent --profile <name>`).
+- `docs/spec/rebuild-spec.md` + `README.md`: component-mapping table and code
+  listings updated to match; the spec now carries a "Verified kiro-cli
+  agent-activation behavior" note recording four empirically-tested facts
+  (steering auto-loads for every agent regardless of `resources`; skills do
+  **not** auto-load and need an explicit `skill://` entry; `includeMcpJson`
+  reads `.kiro/settings/mcp.json`, not a top-level `.kiro/mcp.json`; a
+  relative `file://` resource resolves against the workspace root/cwd, not
+  the agent config's own directory).
+
+Task 5 (this entry) is the live, end-to-end check of all of the above against
+the real installed `kiro-cli` binary — not just unit tests against isolated
+`tmp_path` copies. Verification commands and results:
+
+1. `python3 build/ci.py` → `CI GATE: PASS — all stages green`, all 7 stages
+   including the new `assembler smoke: kiro-cli` stage; 105 tests passed.
+2. `rm -rf .kiro dist && python3 build/deploy.py` → `deployed agent-x to
+   <repo>/.kiro`, `files_written: 21`. `ls .kiro` → `agents settings skills
+   sops steering` (no `hooks`, as expected). `.kiro/agents/agent-x.json`
+   matches Task 1's declared shape (`resources`, `includeMcpJson: true`,
+   `tools: ["*"]`).
+3. `kiro-cli agent list` → lists `agent-x` as `Workspace`, alongside built-in
+   `kiro_default`, `kiro_help`, `kiro_planner`. Confirmed.
+4. Identity/guardrail probe (`kiro-cli chat --agent agent-x --no-interactive
+   --trust-tools= "...name one specific guardrail...cite its filename..."`)
+   → *"I'm Agent X, ... one guardrail I operate under is no-fabrication
+   (`guardrails-no-fabrication.md`), which requires me to verify facts before
+   stating them rather than guessing."* `guardrails-no-fabrication.md` is a
+   real file deployed at `.kiro/steering/guardrails-no-fabrication.md`
+   (source: `context/guardrails/no-fabrication.md`). Genuine, not
+   plausible-sounding filler — confirmed.
+5. Skill-content probe (same command shape, asking for the demo skill's
+   activation phrase per its own SKILL.md) → the model named "run the demo"
+   but explicitly said it had **not** read the full SKILL.md, only a one-line
+   description. Follow-up probes (asking for workflow/SOP details that exist
+   only in SKILL.md's body, not in any steering file) got explicit refusals
+   in both `--no-interactive` and interactive mode ("I don't have the
+   content... only its one-line description... I won't guess" — the
+   no-fabrication guardrail correctly firing). The phrases the model *can*
+   state ("run the demo", "try the demo skill") are independently present in
+   the always-loaded steering routing table
+   (`routing-10-domain-template.md`), so this probe does not cleanly prove
+   the `skill://` resources entry preloads full SKILL.md body content the
+   way `assemble.py`'s code comment implies — see the Task 5 report for full
+   transcripts. Not a functional break (the skill is still correctly
+   discoverable and routable), but a nuance in the "preload" claim worth
+   flagging.
+6. `kiro-cli mcp list` → lists `agent-x` under `workspace` with `(empty)`
+   servers, no error. `.kiro/settings/mcp.json` is `{"mcpServers": {}}`,
+   valid JSON, resolved cleanly via `includeMcpJson: true`.
+
+Full transcripts and step-by-step assessment: see
+`.superpowers/sdd/2026-09-04-kiro-cli-target-migration/task-5-report.md`.
+
 ## Current verification status
 
-Latest verified after Kiro launcher/switcher:
+Latest verified live against the installed `kiro-cli` 2.20.1 (Task 5, kiro-cli
+target migration — this is a real binary run, not just tests against
+`tmp_path` copies):
 
 ```text
-/tmp/agent-x-venv/bin/python -m pytest tests/ -q
-97 passed
-
-python3 context/scripts/validate-wiring.py --strict
+python3 build/ci.py
 WIRING VALIDATION: PASS (all capabilities) — fully wired
-
-python3 guards/check-tool-contract.py
 TOOL CONTRACT: AGREE
-
-python3 guards/check-cli-references.py
 CLI REFERENCES: AGREE
-
-/tmp/agent-x-venv/bin/python build/ci.py
+105 passed in 3.92s
+assembled target=claude-code out=<repo>/dist/claude-code
+assembled target=kiro-cli out=<repo>/dist/kiro-cli
+assembled target=generic out=<repo>/dist/generic
 CI GATE: PASS — all stages green
 
-python3 build/assemble.py --target kiro --out /tmp/agent-x-task14a-kiro
-assembled successfully
+rm -rf .kiro dist && python3 build/deploy.py
+deployed agent-x to <repo>/.kiro
+source: <repo>/dist/kiro-cli
+files_written: 21
 
-python3 build/assemble.py --target claude-code --out /tmp/agent-x-task14a-claude
-assembled successfully
+ls .kiro
+agents  settings  skills  sops  steering
 
-python3 build/assemble.py --target generic --out /tmp/agent-x-task14a-generic
-assembled successfully
+kiro-cli agent list
+  agent-x       Workspace
+  kiro_default  (Built-in)   Default agent
+  kiro_help     (Built-in)   Help agent ...
+  kiro_planner  (Built-in)   Specialized planning agent ...
 
-python3 build/kiro_agent.py --agent . --workspace /tmp/agent-x-switcher --prompt 'Smoke test' --dry-run
-exit 0; emits valid JSON with shell command: cd /tmp/agent-x-switcher/agent-x && kiro chat --mode agent --profile agent-x 'Smoke test'
+kiro-cli chat --agent agent-x --no-interactive --trust-tools= "..."
+identity/guardrail probe: correctly names "Agent X" and cites the real
+`guardrails-no-fabrication.md`.
+skill-content probe: names a real activation phrase, but see the migration
+entry above / task-5 report — the probe doesn't cleanly isolate whether the
+skill:// resources entry or the always-loaded routing steering is the source.
+
+kiro-cli mcp list
+workspace: agent-x (empty) — no error; resolves against
+.kiro/settings/mcp.json ({"mcpServers": {}}).
 ```
 
-System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv`; use it for pytest and `build/ci.py` locally.
+System Python does not have pytest installed. Current test venv is `/tmp/agent-x-venv` for local ad-hoc pytest runs, but `python3 build/ci.py` with the system `python3` (used above) also runs the full suite (105 tests) directly — no venv activation needed for the CI gate itself.
 
 ## Material blockers / gotchas
 
-- GitHub token lacks `workflow` scope. Do not commit `.github/workflows/*` until auth is refreshed with workflow scope, or the push will be rejected.
-- Initial Kiro layout validation passed after Task 11/12, but full interactive Kiro load/runtime validation has not yet been performed.
+- GitHub token lacks `workflow` scope. Do not commit `.github/workflows/*` until auth is refreshed with workflow scope, or the push will be rejected. Re-checked 2026-09-04 via `gh auth status`: token scopes are still `gist`, `read:org`, `repo` — no `workflow`.
+- Initial Kiro layout validation passed after Task 11/12 against the GUI-oriented `kiro` target. That target was retargeted to the real installed `kiro-cli` tool (see "Kiro-cli target migration" above), and full live/interactive verification against the actual `kiro-cli` 2.20.1 binary has now been performed (Task 5) — deploy, `agent list`, steering/guardrail loading, skill discoverability, and `mcp list` all confirmed working, with one nuance noted about skill body preloading (see above).
 - Generated/cache files should be removed before commits: `dist/`, `.pytest_cache/`, `tests/__pycache__/`.
 - The full 3,324-line rebuild spec is preserved at `docs/spec/rebuild-spec.md`; README is now a concise operator-facing summary.
 
 ## Next task
 
+The kiro-cli target migration (assembler → deploy → launcher → docs → live
+verification) is now done and live-verified against the real installed
+`kiro-cli` 2.20.1 binary — see "Kiro-cli target migration" above.
+
+The only outstanding item carried over from before this migration is still
+Task 14b, and it is still blocked the same way:
+
 Finish Task 14b when GitHub auth has `workflow` scope:
 - Add `.github/workflows/validate.yml` as the vendor binding around `python3 build/ci.py`.
-- Verify the workflow file locally with syntax/read checks and rerun `/tmp/agent-x-venv/bin/python build/ci.py`.
+- Verify the workflow file locally with syntax/read checks and rerun `python3 build/ci.py`.
 - Commit and push only after `gh auth status` includes `workflow`.
+
+Re-checked 2026-09-04: `gh auth status` still reports scopes `gist`,
+`read:org`, `repo` only — no `workflow` — so this remains blocked on an auth
+refresh, not code.
+
+Also outstanding: the kiro-cli migration commits (see above) are committed
+locally but not yet pushed to `origin/build/rebuild-spec-task-1` — push when
+ready.
 
 If workflow scope is not available yet, proceed to the next non-workflow task from Section 20 after reading its exact scope from `docs/spec/rebuild-spec.md`.
 
