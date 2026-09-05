@@ -1,9 +1,69 @@
 # Onboarding: How Development Works Here
 
-Read this first if you're a new agent/session picking up work in `agent-x`
-(or a personalized fork like `agent-x-mish`) — before touching code.
+Read this first if you're a new agent/session picking up work here — before
+touching code. This file is itself a template artifact: it lives in
+`agent-x` and reaches every fork via `build/sync_template.py`, so it's
+written to make sense whichever repo you're actually sitting in.
 
-## 1. What this repo is
+## 1. Which repo am I in?
+
+Check `agent.manifest.json`'s `"name"` field:
+
+```bash
+grep '"name"' agent.manifest.json
+```
+
+- **`"agent-x"`** → you're in the template. Go to §2a.
+- **Anything else** (`"agent-x-mish"`, `"agent-x-john"`, or any other
+  personalized name) → you're in a fork. Go to §2b.
+
+Forks are created by linking a `template` git remote back to `agent-x` and
+merging its history in (see `docs/sync-workflow.md`) — the mechanism is
+identical no matter what the fork is named or who owns it.
+
+### 2a. Developing the template (`agent-x`)
+
+You're changing shared framework code that every fork inherits. Extra care
+applies:
+
+- Keep it generic — **no Mish-specific (or anyone-specific) content**: no
+  personal skills, no hardcoded personal paths, no real hostnames/credentials.
+  That belongs in a fork, never here.
+- A behavior or schema change here (the manifest shape, `build/assemble.py`'s
+  target functions, `build/deploy.py`'s mappings) is a change every fork will
+  merge in later — think about whether it's likely to conflict with the kind
+  of personalization a fork makes (see the `agent.manifest.json` conflict
+  pattern in `docs/sync-workflow.md`) and whether that's acceptable.
+- `docs/progress/FORK_NOTES.md` stays a placeholder here — never add real
+  entries to it in this repo. It's the one file forks can edit without ever
+  hitting a sync conflict, and that only works because the template commits
+  it once and never touches it again.
+- Otherwise, follow the core development loop in §3 like any other change.
+
+### 2b. Developing a fork (`agent-x-mish`, `agent-x-john`, ...)
+
+You're personalizing a clone. In addition to §3's core loop:
+
+- Record *your own* fork-specific history in `docs/progress/FORK_NOTES.md`
+  — not `docs/progress/PROJECT_PROGRESS.md`, which describes the template's
+  work and keeps arriving from `agent-x` via sync (your edits to it would
+  eventually collide with template updates to the same living sections).
+  `FORK_NOTES.md` is yours alone; the template never writes to it again
+  after the placeholder, so it never conflicts.
+- After every `python3 build/sync_template.py`, re-check the
+  manifest-name test-coupling gotcha in §4 — a sync can bring in new tests
+  that hardcode the template's own name against the real manifest.
+- Fork-local skills (things specific to you, not the template) live under
+  `skills/` same as any other skill — wire them the normal way
+  (`skillNames`, a routing row, `SKILL.md`) and they'll survive future
+  syncs untouched as long as the template never creates a skill with the
+  same name.
+- Read `docs/sync-workflow.md` in full before your first sync if you
+  haven't already — bootstrap, the tool's behavior, the recurring
+  `agent.manifest.json` conflict and how to resolve it, a real worked
+  example.
+
+## 3. What this repo is
 
 An agent capability package template: one `agent.manifest.json` declares
 skills/SOPs/context, `build/assemble.py` turns that into per-host artifacts
@@ -14,25 +74,26 @@ README's "How it works" section for the diagrammed version, and
 design principles, the complete wiring rule set) if you're about to make a
 structural change to `context/`, `skills/`, or the assembler.
 
-## 2. Where to look for what
+## 4. Where to look for what
 
-- **`README.md`** — quick start, architecture tree, build targets, forking a
-  fork of this repo. Concise and operator-facing by design; don't bloat it.
+- **`README.md`** — quick start, architecture tree, build targets, forking.
+  Concise and operator-facing by design; don't bloat it.
 - **`docs/spec/rebuild-spec.md`** — the full architectural spec. Read the
   relevant section before making a structural change; update the matching
   code listing if you change what it documents (see gotcha below).
-- **`docs/sync-workflow.md`** — read this in full if you're working in a
-  fork, or changing anything a fork depends on (`build/assemble.py`,
-  `build/deploy.py`, the manifest schema).
-- **`docs/progress/PROJECT_PROGRESS.md`** — the running state/history log.
-  Update it after material work (repo state, what changed, what's next);
-  don't treat it as instructions for *how* to work — that's this file.
+- **`docs/sync-workflow.md`** — the fork-sync mechanics: bootstrap, the
+  sync tool, the manifest conflict pattern, a worked example.
+- **`docs/progress/PROJECT_PROGRESS.md`** — the template's own running
+  state/history log. In a fork, this describes `agent-x`'s work (arrives
+  via sync), not yours — see §2b.
+- **`docs/progress/FORK_NOTES.md`** — a fork's own running log of its own
+  history. Placeholder in the template; see §2a/§2b.
 - **`docs/superpowers/specs/`** and **`docs/superpowers/plans/`** — design
   and implementation records for specific larger efforts (e.g. the kiro-cli
   target migration). Read the relevant one before touching related code
   again; it usually explains *why*, not just *what*.
 
-## 3. The core development loop
+## 5. The core development loop
 
 1. Before changing anything, confirm `python3 build/ci.py` is green on the
    current tree — that's your baseline.
@@ -48,12 +109,14 @@ structural change to `context/`, `skills/`, or the assembler.
    update that listing to match. This repo has shipped real drift between
    the spec and the code before — don't add more of it.
 6. Commit in small, single-concern steps; push after each. This matches
-   the working convention already recorded in `docs/progress/
-   PROJECT_PROGRESS.md`'s "User instructions / operating rules".
+   the working convention already recorded in
+   `docs/progress/PROJECT_PROGRESS.md`'s "User instructions / operating
+   rules".
 7. If the change is new tooling (not a bugfix), decide whether README needs
-   a new section and whether `PROJECT_PROGRESS.md` needs a new entry.
+   a new section and whether your progress log (`PROJECT_PROGRESS.md` in
+   the template, `FORK_NOTES.md` in a fork) needs a new entry.
 
-## 4. Known gotchas (read before you rediscover them the hard way)
+## 6. Known gotchas (read before you rediscover them the hard way)
 
 - **Manifest-name test coupling.** Several tests assert the real repo's own
   `agent.manifest.json` name literally (e.g. `agents/agent-x.json`,
@@ -78,15 +141,7 @@ structural change to `context/`, `skills/`, or the assembler.
   the design doc above); new drift you personally introduce should be
   fixed, not left for the next session.
 
-## 5. If you're working in a fork (e.g. `agent-x-mish`)
-
-Read `docs/sync-workflow.md` in full before syncing (`python3
-build/sync_template.py`) or making structural changes — it documents the
-one-time bootstrap, the tool's step-by-step behavior, the recurring
-`agent.manifest.json` conflict and exactly how to resolve it, and a worked
-example citing real commit SHAs from an actual sync session.
-
-## 6. Verifying you're actually done
+## 7. Verifying you're actually done
 
 "Tests pass" isn't the bar. This repo also has a wiring validator
 (`python3 context/scripts/validate-wiring.py --strict`) that's the

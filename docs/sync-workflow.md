@@ -103,6 +103,21 @@ a very early fork).
 
 ---
 
+## Recording your own fork's history without ever conflicting
+
+`docs/progress/PROJECT_PROGRESS.md` is the *template's* running log — it
+keeps arriving via sync and describes `agent-x`'s own work, not your fork's.
+If a fork edits it to record fork-specific history, that edit will
+eventually collide with a template update to the same living sections
+(same failure mode as `agent.manifest.json`, just harder to predict).
+
+Use `docs/progress/FORK_NOTES.md` instead. The template commits it once as
+a placeholder and never touches it again — specifically so a fork can write
+whatever it wants there without ever hitting a sync conflict. See
+`docs/onboarding.md` §2b for what belongs in it.
+
+---
+
 ## Known conflict: `agent.manifest.json`
 
 The single most likely conflict, because both sides legitimately touch the
