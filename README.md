@@ -112,6 +112,17 @@ Primary target: Kiro
 
     python3 build/assemble.py --target kiro
 
+For repeatable Kiro CLI testing and agent switching, use the launcher:
+
+    python3 build/kiro_agent.py --agent . --prompt "Run the demo skill" --dry-run
+    python3 build/kiro_agent.py --agent . --prompt "Run the demo skill"
+
+To switch agents, pass another agent package path or an alias from `agents/registry.local.json`:
+
+    python3 build/kiro_agent.py --agent /path/to/other-agent --prompt "Smoke test"
+
+Each agent is assembled under `.kiro-agents/<agent-name>/` and launched with a matching Kiro profile, so agent contexts stay separate.
+
 Secondary target: Claude Code
 
     python3 build/assemble.py --target claude-code
