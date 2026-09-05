@@ -1,6 +1,6 @@
 # Agent X Project Progress
 
-Last updated: after README Section 20 Task 12.
+Last updated: after README Section 20 Task 13a.
 
 ## Current goal
 
@@ -108,13 +108,23 @@ Implemented generic package capabilities:
 - Moved the full rebuild spec out of the active README into `docs/spec/rebuild-spec.md` and replaced README with a concise operating README.
 - Removed `.gitkeep` placeholders from directories that now contain real files so assembled targets are clean.
 
+### Task 13a — Optional readonly investigator subagent
+
+Commit: `5e09a75 feat: add readonly investigator subagent`
+
+Implemented the first half of Task 13:
+- `agents/readonly-investigator.agent.json`
+- `context/prompts/readonly-investigator.md`
+- manifest `subagentNames` declaration
+- validator/tests proving the investigator is read-only by tool scope and only permits toolkit read verbs (`list|get|search|discover|authcheck`).
+
 ## Current verification status
 
-Latest verified after Task 12:
+Latest verified after Task 13a:
 
 ```text
 /tmp/agent-x-venv/bin/python -m pytest tests/ -q
-77 passed
+83 passed
 
 python3 context/scripts/validate-wiring.py --strict
 WIRING VALIDATION: PASS (all capabilities) — fully wired
@@ -149,7 +159,14 @@ System Python does not have pytest installed. Current test venv is `/tmp/agent-x
 
 ## Next task
 
-Proceed with README Section 20 Task 13 — likely SOPs and/or next wiring layer from the preserved rebuild spec. Before starting, read the relevant Task 13 section from `docs/spec/rebuild-spec.md` and keep Kiro as the primary target.
+Proceed with README Section 20 Task 13b — unattended operation templates.
+
+Expected scope:
+- Add `unattended/README.md`.
+- Add `unattended/jobs.template.json` with every job `enabled: false`.
+- Add `unattended/policy.template.json` with empty-means-CLEAR semantics stated inline.
+- Add focused tests/validator checks for disabled jobs and clear empty policy.
+- Do not start Task 14 SOPs, hooks, or CI until Task 13b is committed and pushed.
 
 Expected verification before the next commit:
 - `/tmp/agent-x-venv/bin/python -m pytest tests/ -q`
