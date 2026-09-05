@@ -1,6 +1,8 @@
 dist/
+.kiro/
 .kiro-agents/
 agents/registry.local.json
+local/
 __pycache__/
 *.pyc
 .pytest_cache/

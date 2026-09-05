@@ -10,7 +10,7 @@ RUNNER = ROOT / "build" / "kiro_agent.py"
 
 def copy_package(tmp_path: Path) -> Path:
     dest = tmp_path / "pkg"
-    shutil.copytree(ROOT, dest, ignore=shutil.ignore_patterns(".git", "dist", ".pytest_cache", "__pycache__", ".kiro-agents"))
+    shutil.copytree(ROOT, dest, ignore=shutil.ignore_patterns(".git", "dist", ".kiro", ".kiro-agents", ".pytest_cache", "__pycache__"))
     return dest
 
 
@@ -23,20 +23,21 @@ def run_runner(*args: str, cwd: Path | None = None) -> subprocess.CompletedProce
     )
 
 
-def test_kiro_runner_dry_run_assembles_default_agent(tmp_path):
+def test_kiro_runner_dry_run_deploys_default_agent_to_workspace_kiro(tmp_path):
     workspace = tmp_path / "workspace"
 
-    result = run_runner("--workspace", str(workspace), "--prompt", "hello", "--dry-run")
+    result = run_runner("--workspace-root", str(workspace), "--prompt", "hello", "--dry-run")
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["agent"] == "agent-x"
     assert payload["profile"] == "agent-x"
-    assert payload["cwd"] == str(workspace / "agent-x")
+    assert payload["cwd"] == str(workspace)
+    assert payload["deployed_to"] == str(workspace / ".kiro")
     assert payload["command"][:5] == ["kiro", "chat", "--mode", "agent", "--profile"]
     assert payload["command"][-1] == "hello"
-    assert (workspace / "agent-x" / "steering" / "00-system.md").is_file()
-    assert (workspace / "agent-x" / "mcp.json").is_file()
+    assert (workspace / ".kiro" / "steering" / "00-system.md").is_file()
+    assert (workspace / ".kiro" / "mcp.json").is_file()
 
 
 def test_kiro_runner_can_switch_to_agent_path_with_isolated_profile(tmp_path):
@@ -46,14 +47,15 @@ def test_kiro_runner_can_switch_to_agent_path_with_isolated_profile(tmp_path):
     (pkg / "agent.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     workspace = tmp_path / "workspace"
 
-    result = run_runner("--agent", str(pkg), "--workspace", str(workspace), "--dry-run")
+    result = run_runner("--agent", str(pkg), "--workspace-root", str(workspace), "--dry-run")
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["agent"] == "agent-y"
     assert payload["profile"] == "agent-y"
-    assert payload["cwd"] == str(workspace / "agent-y")
-    assert (workspace / "agent-y" / "steering" / "00-system.md").is_file()
+    assert payload["cwd"] == str(workspace)
+    assert payload["deployed_to"] == str(workspace / ".kiro")
+    assert (workspace / ".kiro" / "steering" / "00-system.md").is_file()
 
 
 def test_kiro_runner_resolves_alias_from_local_registry(tmp_path):
@@ -68,7 +70,7 @@ def test_kiro_runner_resolves_alias_from_local_registry(tmp_path):
 
     runner = pkg / "build" / "kiro_agent.py"
     result = subprocess.run(
-        [sys.executable, str(runner), "--agent", "personal", "--workspace", str(workspace), "--dry-run"],
+        [sys.executable, str(runner), "--agent", "personal", "--workspace-root", str(workspace), "--dry-run"],
         cwd=pkg,
         capture_output=True,
         text=True,
@@ -78,15 +80,17 @@ def test_kiro_runner_resolves_alias_from_local_registry(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["agent"] == "aliased-agent"
     assert payload["agent_root"] == str(other)
+    assert (workspace / ".kiro" / "steering" / "00-system.md").is_file()
 
 
-def test_kiro_runner_dry_run_can_skip_assembly_when_artifact_exists(tmp_path):
+def test_kiro_runner_dry_run_can_skip_deploy_when_workspace_kiro_exists(tmp_path):
     workspace = tmp_path / "workspace"
-    first = run_runner("--workspace", str(workspace), "--dry-run")
+    first = run_runner("--workspace-root", str(workspace), "--dry-run")
     assert first.returncode == 0, first.stderr
 
-    second = run_runner("--workspace", str(workspace), "--no-assemble", "--dry-run")
+    second = run_runner("--workspace-root", str(workspace), "--no-deploy", "--dry-run")
 
     assert second.returncode == 0, second.stderr
     payload = json.loads(second.stdout)
-    assert payload["artifact_dir"] == str(workspace / "agent-x")
+    assert payload["deployed_to"] == str(workspace / ".kiro")
+    assert payload["deploy"] is None

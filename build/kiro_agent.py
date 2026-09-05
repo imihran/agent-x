@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Assemble and launch a selected agent package with the Kiro CLI.
+"""Deploy and launch a selected agent package with the Kiro CLI.
 
-This wrapper makes Kiro testing repeatable and switchable: each source agent is
-assembled into its own Kiro artifact directory and launched with its own Kiro
-profile, so testing another agent is just changing --agent.
+Kiro loads agent config from `.kiro/` in the workspace root. This wrapper makes
+that explicit: it deploys the selected source agent into the workspace root,
+then starts `kiro chat` from that same workspace. Switching agents is changing
+`--agent`; each agent gets its own default Kiro profile.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_WORKSPACE = ROOT / ".kiro-agents"
+DEPLOY = ROOT / "build" / "deploy.py"
 
 
 def fail(message: str) -> None:
@@ -46,10 +47,7 @@ def resolve_agent(value: str) -> Path:
         if target:
             return Path(target).expanduser().resolve()
 
-    fail(
-        f"agent {value!r} is neither a directory nor an alias in "
-        "agents/registry.local.json"
-    )
+    fail(f"agent {value!r} is neither a directory nor an alias in agents/registry.local.json")
     raise SystemExit(1)
 
 
@@ -61,25 +59,23 @@ def manifest_name(agent_root: Path) -> str:
     return str(name)
 
 
-def assemble(agent_root: Path, out: Path) -> None:
-    assembler = agent_root / "build" / "assemble.py"
-    if not assembler.is_file():
-        fail(f"agent has no build/assemble.py: {agent_root}")
+def deploy_agent(agent_root: Path, workspace_root: Path) -> dict:
     result = subprocess.run(
-        [sys.executable, str(assembler), "--target", "kiro", "--out", str(out)],
-        cwd=agent_root,
-        text=True,
+        [sys.executable, str(DEPLOY), "--agent", str(agent_root), "--workspace-root", str(workspace_root), "--json"],
+        cwd=ROOT,
         capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         if result.stdout:
             print(result.stdout, file=sys.stderr, end="")
         if result.stderr:
             print(result.stderr, file=sys.stderr, end="")
-        fail(f"assembly failed for {agent_root} (exit {result.returncode})")
+        fail(f"deploy failed for {agent_root} (exit {result.returncode})")
+    return json.loads(result.stdout)
 
 
-def command_for(args: argparse.Namespace, agent_root: Path, out: Path, profile: str) -> list[str]:
+def command_for(args: argparse.Namespace, workspace_root: Path, profile: str) -> list[str]:
     cmd = ["kiro", "chat", "--mode", args.mode, "--profile", profile]
     if args.new_window:
         cmd.append("--new-window")
@@ -96,16 +92,8 @@ def command_for(args: argparse.Namespace, agent_root: Path, out: Path, profile: 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--agent",
-        default=str(ROOT),
-        help="Agent package path, or alias from agents/registry.local.json. Default: this repo.",
-    )
-    parser.add_argument(
-        "--workspace",
-        default=str(DEFAULT_WORKSPACE),
-        help="Where assembled Kiro artifacts live. Default: .kiro-agents/",
-    )
+    parser.add_argument("--agent", default=str(ROOT), help="Agent package path, or alias from agents/registry.local.json. Default: this repo.")
+    parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where Kiro should load .kiro/. Default: this repo.")
     parser.add_argument("--profile", default=None, help="Kiro profile name. Default: agent name.")
     parser.add_argument("--mode", default="agent", help="Kiro chat mode. Default: agent.")
     parser.add_argument("--prompt", default=None, help="Prompt to pass to `kiro chat`.")
@@ -113,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--user-data-dir", default=None, help="Optional isolated Kiro user-data dir.")
     parser.add_argument("--reuse-window", action="store_true", help="Reuse last Kiro window.")
     parser.add_argument("--new-window", action="store_true", help="Open a new Kiro window.")
-    parser.add_argument("--no-assemble", action="store_true", help="Use existing assembled artifact.")
+    parser.add_argument("--no-deploy", action="store_true", help="Use existing workspace-root/.kiro without redeploying.")
     parser.add_argument("--dry-run", action="store_true", help="Print resolved launch JSON without running Kiro.")
     args = parser.parse_args(argv)
 
@@ -121,23 +109,25 @@ def main(argv: list[str] | None = None) -> int:
         fail("choose only one of --new-window or --reuse-window")
 
     agent_root = resolve_agent(args.agent)
+    workspace_root = Path(args.workspace_root).expanduser().resolve()
     name = manifest_name(agent_root)
-    workspace = Path(args.workspace).expanduser().resolve()
-    out = workspace / name
     profile = args.profile or name
 
-    if not args.no_assemble:
-        assemble(agent_root, out)
+    deployed = None
+    if not args.no_deploy:
+        deployed = deploy_agent(agent_root, workspace_root)
 
-    cmd = command_for(args, agent_root, out, profile)
+    cmd = command_for(args, workspace_root, profile)
     payload = {
         "agent": name,
         "agent_root": str(agent_root),
-        "artifact_dir": str(out),
+        "workspace_root": str(workspace_root),
+        "deployed_to": str(workspace_root / ".kiro"),
         "profile": profile,
-        "cwd": str(out),
+        "cwd": str(workspace_root),
         "command": cmd,
-        "shell_command": "cd " + shlex.quote(str(out)) + " && " + " ".join(shlex.quote(x) for x in cmd),
+        "shell_command": "cd " + shlex.quote(str(workspace_root)) + " && " + " ".join(shlex.quote(x) for x in cmd),
+        "deploy": deployed,
     }
 
     if args.dry_run:
@@ -145,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     env = os.environ.copy()
-    result = subprocess.run(cmd, cwd=out, env=env)
+    result = subprocess.run(cmd, cwd=workspace_root, env=env)
     return result.returncode
 
 

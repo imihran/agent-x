@@ -4,9 +4,16 @@ Agent capability package template. Built on the modular capability framework: ev
 
 Agent X is a codename. Keep user-facing names configurable until the final name is chosen.
 
-To run the agent: `agent-x` — assemble the primary Kiro target with:
+## Quick start
 
-    python3 build/assemble.py --target kiro
+1. Clone the repo.
+2. Deploy the Kiro runtime files into the workspace root:
+
+       python3 build/deploy.py
+
+3. Open the repo folder in Kiro, or ask it from the CLI:
+
+       python3 build/kiro_agent.py --agent . --prompt "What agent are you?"
 
 The full rebuild specification is preserved at:
 
@@ -19,7 +26,9 @@ The full rebuild specification is preserved at:
     ├── wiring.config.json
     ├── build/
     │   ├── assemble.py
-    │   └── ci.py
+    │   ├── ci.py
+    │   ├── deploy.py
+    │   └── kiro_agent.py
     ├── context/
     │   ├── prompt/
     │   │   ├── 00-identity.md
@@ -56,7 +65,8 @@ The full rebuild specification is preserved at:
     │   ├── adversarial-review.sop.md
     │   └── example.sop.md
     ├── agents/
-    │   └── readonly-investigator.agent.json
+    │   ├── readonly-investigator.agent.json
+    │   └── registry.local.json.example
     ├── unattended/
     │   ├── README.md
     │   ├── jobs.template.json
@@ -112,6 +122,10 @@ Primary target: Kiro
 
     python3 build/assemble.py --target kiro
 
+To make Kiro actually load Agent X in this workspace, deploy generated files into `.kiro/`:
+
+    python3 build/deploy.py
+
 For repeatable Kiro CLI testing and agent switching, use the launcher:
 
     python3 build/kiro_agent.py --agent . --prompt "Run the demo skill" --dry-run
@@ -119,9 +133,10 @@ For repeatable Kiro CLI testing and agent switching, use the launcher:
 
 To switch agents, pass another agent package path or an alias from `agents/registry.local.json`:
 
+    cp agents/registry.local.json.example agents/registry.local.json
     python3 build/kiro_agent.py --agent /path/to/other-agent --prompt "Smoke test"
 
-Each agent is assembled under `.kiro-agents/<agent-name>/` and launched with a matching Kiro profile, so agent contexts stay separate.
+The launcher deploys the selected agent into `<workspace-root>/.kiro/` and launches Kiro from that workspace root, because Kiro loads agent config from the workspace `.kiro/` directory.
 
 Secondary target: Claude Code
 

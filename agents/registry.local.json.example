@@ -1,0 +1,6 @@
+{
+  "agents": {
+    "agent-x": "/home/<you>/Documents/GitHub/agent-x",
+    "agent-x-mish": "/home/<you>/Documents/GitHub/agent-x-mish"
+  }
+}
