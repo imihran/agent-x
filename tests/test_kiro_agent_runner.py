@@ -34,10 +34,26 @@ def test_kiro_runner_dry_run_deploys_default_agent_to_workspace_kiro(tmp_path):
     assert payload["profile"] == "agent-x"
     assert payload["cwd"] == str(workspace)
     assert payload["deployed_to"] == str(workspace / ".kiro")
-    assert payload["command"][:5] == ["kiro", "chat", "--mode", "agent", "--profile"]
-    assert payload["command"][-1] == "hello"
+    assert payload["command"] == ["kiro-cli", "chat", "--agent", "agent-x", "hello"]
     assert (workspace / ".kiro" / "steering" / "00-system.md").is_file()
-    assert (workspace / ".kiro" / "mcp.json").is_file()
+    assert (workspace / ".kiro" / "settings" / "mcp.json").is_file()
+    assert (workspace / ".kiro" / "agents" / "agent-x.json").is_file()
+
+
+def test_kiro_runner_passes_through_no_interactive_and_trust_all_tools(tmp_path):
+    workspace = tmp_path / "workspace"
+
+    result = run_runner(
+        "--workspace-root", str(workspace), "--prompt", "hi",
+        "--no-interactive", "--trust-all-tools", "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["command"] == [
+        "kiro-cli", "chat", "--agent", "agent-x",
+        "--no-interactive", "--trust-all-tools", "hi",
+    ]
 
 
 def test_kiro_runner_can_switch_to_agent_path_with_isolated_profile(tmp_path):

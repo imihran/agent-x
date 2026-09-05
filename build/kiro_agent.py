@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Deploy and launch a selected agent package with the Kiro CLI.
+"""Deploy and launch a selected agent package with kiro-cli.
 
-Kiro loads agent config from `.kiro/` in the workspace root. This wrapper makes
-that explicit: it deploys the selected source agent into the workspace root,
-then starts `kiro chat` from that same workspace. Switching agents is changing
-`--agent`; each agent gets its own default Kiro profile.
+kiro-cli (the terminal chat tool) is a separate program from the Kiro GUI
+editor — it activates agents via `.kiro/agents/<name>.json` in the workspace
+root, not the GUI's steering/profile mechanism. This wrapper deploys the
+selected source agent into the workspace root, then starts
+`kiro-cli chat --agent <name>` from that same workspace. Switching agents is
+changing `--agent`.
 """
 from __future__ import annotations
 
@@ -75,16 +77,16 @@ def deploy_agent(agent_root: Path, workspace_root: Path) -> dict:
     return json.loads(result.stdout)
 
 
-def command_for(args: argparse.Namespace, workspace_root: Path, profile: str) -> list[str]:
-    cmd = ["kiro", "chat", "--mode", args.mode, "--profile", profile]
-    if args.new_window:
-        cmd.append("--new-window")
-    elif args.reuse_window:
-        cmd.append("--reuse-window")
-    if args.user_data_dir:
-        cmd.extend(["--user-data-dir", str(Path(args.user_data_dir).expanduser())])
-    for add_file in args.add_file:
-        cmd.extend(["--add-file", add_file])
+def command_for(args: argparse.Namespace, profile: str) -> list[str]:
+    cmd = ["kiro-cli", "chat", "--agent", profile]
+    if args.no_interactive:
+        cmd.append("--no-interactive")
+    if args.trust_all_tools:
+        cmd.append("--trust-all-tools")
+    if args.model:
+        cmd.extend(["--model", args.model])
+    if args.effort:
+        cmd.extend(["--effort", args.effort])
     if args.prompt:
         cmd.append(args.prompt)
     return cmd
@@ -93,20 +95,16 @@ def command_for(args: argparse.Namespace, workspace_root: Path, profile: str) ->
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", default=str(ROOT), help="Agent package path, or alias from agents/registry.local.json. Default: this repo.")
-    parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where Kiro should load .kiro/. Default: this repo.")
-    parser.add_argument("--profile", default=None, help="Kiro profile name. Default: agent name.")
-    parser.add_argument("--mode", default="agent", help="Kiro chat mode. Default: agent.")
-    parser.add_argument("--prompt", default=None, help="Prompt to pass to `kiro chat`.")
-    parser.add_argument("--add-file", action="append", default=[], help="Extra file context for Kiro chat.")
-    parser.add_argument("--user-data-dir", default=None, help="Optional isolated Kiro user-data dir.")
-    parser.add_argument("--reuse-window", action="store_true", help="Reuse last Kiro window.")
-    parser.add_argument("--new-window", action="store_true", help="Open a new Kiro window.")
+    parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where kiro-cli should load .kiro/. Default: this repo.")
+    parser.add_argument("--profile", default=None, help="kiro-cli agent name to activate (passed as kiro-cli chat's --agent). Default: agent name.")
+    parser.add_argument("--prompt", default=None, help="Prompt to pass to `kiro-cli chat`.")
+    parser.add_argument("--no-interactive", action="store_true", help="Run kiro-cli chat without expecting further user input.")
+    parser.add_argument("--trust-all-tools", action="store_true", help="Allow kiro-cli to use any tool without confirmation prompts.")
+    parser.add_argument("--model", default=None, help="Model to pass to kiro-cli chat.")
+    parser.add_argument("--effort", default=None, help="Effort level to pass to kiro-cli chat (low, medium, high, xhigh, max).")
     parser.add_argument("--no-deploy", action="store_true", help="Use existing workspace-root/.kiro without redeploying.")
-    parser.add_argument("--dry-run", action="store_true", help="Print resolved launch JSON without running Kiro.")
+    parser.add_argument("--dry-run", action="store_true", help="Print resolved launch JSON without running kiro-cli.")
     args = parser.parse_args(argv)
-
-    if args.new_window and args.reuse_window:
-        fail("choose only one of --new-window or --reuse-window")
 
     agent_root = resolve_agent(args.agent)
     workspace_root = Path(args.workspace_root).expanduser().resolve()
@@ -117,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_deploy:
         deployed = deploy_agent(agent_root, workspace_root)
 
-    cmd = command_for(args, workspace_root, profile)
+    cmd = command_for(args, profile)
     payload = {
         "agent": name,
         "agent_root": str(agent_root),
