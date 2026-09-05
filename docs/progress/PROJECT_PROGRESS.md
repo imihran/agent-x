@@ -1,7 +1,8 @@
 # Agent X Project Progress
 
-Last updated: 2026-09-05, after merging to `main`, adding the template-sync
-workflow, and forking `agent-x-mish`.
+Last updated: 2026-09-05, after adding the lazy-footprint capability-shape
+flow (P9 + rebuild-spec §8.7 + wire-new-capability SOP step 2) and
+verifying it live in `agent-x-mish`.
 
 **New agent/session picking this up: read `docs/onboarding.md` first** — it's
 the "how development works here" guide (conventions, gotchas, the core dev
@@ -32,7 +33,7 @@ Build the Agent Capability Package from the rebuild specification. This is prima
 - Preserved rebuild spec: `docs/spec/rebuild-spec.md`
 - Onboarding guide: `docs/onboarding.md`
 - Fork-sync guide: `docs/sync-workflow.md`
-- Current latest pushed commit: `9c9d209 docs: capture the template-sync workflow in full detail`
+- Current latest pushed commit: `51b81b1 docs: inline the knowledge-tier and two-phase rules into wire-new-capability step 2`
 
 ## User instructions / operating rules
 
@@ -321,6 +322,48 @@ material state worth recording here since it's this repo's first real fork:
   into `agent-x-mish` as `mish-host-topology` — reshaped into this
   template's `SKILL.md`/routing/manifest wiring format, live-verified to
   activate correctly and answer using the real ported knowledge.
+
+### Lazy-footprint capability-shape flow (`9230eb6`, `51b81b1`)
+
+Prompted by a review of whether to port the Hermes `ai-job-hunt-team`
+skill into `agent-x-mish`. Decision: don't port it (the workflow already
+has canonical homes in `~/job-hunt/` and the `ai-job-hunt-team` team
+repo), but the shape question — how a new or ported skill splits between
+the eager tiers (paid every turn) and the lazy skill body (loaded on
+activation) — was worth codifying.
+
+- **`docs/spec/rebuild-spec.md`**: new principle **P9 — Lazy footprint**;
+  new **§8.7 "Deciding a capability's shape"** (the 7-point flow: signal
+  phrasing first; tight description / full body; `references/` by purpose
+  not length; nothing skill-specific in `knowledge/`/`conventions/`; cite
+  don't restate, incl. the external-doc dangling-pointer caveat;
+  re-partition don't duplicate routing vocab; two-phase by risk). One
+  §9.1 rule (side-effecting SOPs precede first run). §10.2 and §10.4
+  listings updated to match.
+- **`sops/wire-new-capability.sop.md`**: step 2 renamed "Decide the
+  shape, then author the artifact", cites §8.7, and carries the
+  highest-value rules inline as constraints (description length; safety
+  rules inline not in `references/`; no skill-specific facts in the eager
+  tiers; ship read/diagnostic first, defer high-stakes mutation). Step 4
+  adds the re-partition constraint.
+- **`docs/onboarding.md`**: core dev loop gets a "decide the shape first"
+  step for skill changes.
+
+Docs only — no manifest/routing/skill changes, so the fork-sync is a
+clean 3-file fast-forward (`git merge-tree` dry-run: exit 0, no
+conflicts; the recurring `agent.manifest.json` conflict is not
+triggered).
+
+Verified live, not just by CI: pulled the branch into `agent-x-mish` on a
+throwaway branch, `python3 build/ci.py` green, deployed to `.kiro/`, then
+probed the real `kiro-cli` 2.20.1 (v2 engine) agent with "how should I
+structure a ported job-hunt skill?". First probe: the SOP step-2 gist
+landed (eager/lazy split, tight description, re-partition-with-re-verify
+all surfaced unprompted) but the agent didn't follow the `§8.7` path
+citation, so the spec-only points were missed. Tightened step 2 to inline
+the two shortest of those (`51b81b1`). Second probe: all eight points
+landed from the deployed SOP alone, agent citing "per the SOP, step 2" —
+never needed to open the spec.
 
 ## Current verification status
 
