@@ -123,6 +123,7 @@ def check_claude(manifest: dict, out: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    failures.clear()
     manifest = json.loads((ROOT / "agent.manifest.json").read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
