@@ -209,6 +209,18 @@ def hook_files() -> list[Path]:
     return sorted(p for p in HOOKS.glob("*.hook.json") if p.name != "example.hook.json")
 
 
+def emit_claude_agent_file(manifest: dict, prompt: str, out: Path) -> None:
+    """The generated Claude Code project agent. Claude discovers agents by
+    scanning .claude/agents/*.md and matching frontmatter `name`;
+    `claude --agent <name>` resolves here."""
+    name = manifest.get("name")
+    if not name:
+        fail("agent.manifest.json has no name — required for the claude-code agent file")
+    desc = manifest.get("description") or f"{name} — assembled by build/assemble.py"
+    frontmatter = f"---\nname: {name}\ndescription: {json.dumps(desc)}\n---\n\n"
+    write(out / ".claude" / "agents" / f"{name}.md", frontmatter + prompt)
+
+
 def target_claude_code(manifest: dict, out: Path) -> None:
     prompt = resolve_includes(manifest)
     rule_names = emit_claude_rules(manifest, out)
@@ -220,6 +232,7 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         + "<!-- Always-on project context (loaded via imports). -->\n"
         + imports,
     )
+    emit_claude_agent_file(manifest, prompt, out)
     citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
 
     for d in declared_skill_dirs(manifest):

@@ -299,6 +299,49 @@ def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):
     assert "nonexistent-skill" in result.stderr
 
 
+def test_claude_code_target_emits_primary_agent_file_discoverable_by_name(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    agent = (out_dir / ".claude" / "agents" / "agent-x.md").read_text(encoding="utf-8")
+    assert agent.startswith("---\n")
+    assert "\nname: agent-x\n" in agent
+    assert "description:" in agent
+    # body carries the assembled system prompt
+    assert IDENTITY_MARKER in agent
+    assert DOMAIN_MARKER in agent
+
+
+def test_claude_code_target_primary_agent_filename_follows_manifest_name(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, name="agent-x-mish")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    assert (out_dir / ".claude" / "agents" / "agent-x-mish.md").is_file()
+    assert not (out_dir / ".claude" / "agents" / "agent-x.md").exists()
+    agent = (out_dir / ".claude" / "agents" / "agent-x-mish.md").read_text(encoding="utf-8")
+    assert "\nname: agent-x-mish\n" in agent
+
+
+def test_claude_code_target_missing_name_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    manifest_path = pkg / "agent.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["name"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "name" in result.stderr
+
+
 # --- kiro-cli target ---
 
 
