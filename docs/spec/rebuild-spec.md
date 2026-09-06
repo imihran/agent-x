@@ -111,7 +111,8 @@ agent-package/
 ├── hooks/                        # wiring automation (host adapters translate)
 │   ├── wire-new-capability.hook.json
 │   ├── wire-on-agent-write.hook.json
-│   └── wiring-audit.hook.json
+│   ├── wiring-audit.hook.json
+│   └── example.hook.json         # inert copy-me template; excluded from every target
 ├── guards/                       # validator family 2: anti-drift (generated ↔ documented)
 │   ├── check-tool-contract.py
 │   └── check-cli-references.py
@@ -1770,7 +1771,7 @@ One neutral source tree, per-host artifacts. `build/assemble.py` compiles the pa
 | SOPs | `dist/claude-code/sops/<name>.sop.md` (copied — skills and hooks cite these paths) | `dist/kiro-cli/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
 | MCP servers | `dist/claude-code/.mcp.json` | `dist/kiro-cli/settings/mcp.json` | `dist/generic/mcp.json` |
 | Agent activation | n/a (host loads `CLAUDE.md` directly) | `dist/kiro-cli/agents/<name>.json` — `resources` field points at the steering/skills paths above; kiro-cli's own `--agent <name>` flag activates it | n/a |
-| Hooks | `dist/claude-code/hooks.json` (aggregated list, neutral schema — no trigger rewriting) | omitted — kiro-cli's default engine has no hook runtime | omitted (no hook runtime assumed) |
+| Hooks | `dist/claude-code/hooks.json` (aggregated list, neutral schema — no trigger rewriting) | omitted by choice — the assembler does not translate hooks for this target (kiro-cli *does* run agent-config hooks; §13.5) | omitted (no hook runtime assumed) |
 | Wiring proof | the validator runs on the SOURCE tree — identical for all targets | same | same |
 
 **Verified kiro-cli agent-activation behavior** (tested live against kiro-cli
@@ -2197,7 +2198,26 @@ if __name__ == "__main__":
 
 ### 13.5 Hook templates
 
-Host-neutral shape, re-emitted **without translation**: the `claude-code` target aggregates all hooks into one `hooks.json` list. The `kiro-cli` target omits hooks entirely — kiro-cli's default engine has no hook runtime to receive them (verified: no hook-related concept anywhere in its CLI surface). Neither rewrites triggers where they are emitted — the neutral field names ARE the contract. A host whose runtime expects different trigger names gets its mapping added in that host's target function in `build/assemble.py`; the extension point is deliberate, and claiming translation the assembler does not perform would violate self-report honesty.
+Hooks are authored in `hooks/*.hook.json` in a host-neutral shape (`name`,
+`when.type`, `then.type`). `hooks/example.hook.json` is a copy-me template
+(`{{placeholders}}`); `build/assemble.py`'s `hook_files()` excludes it, so it
+never reaches any target's output — the same inert-template pattern as
+`skills/example-skill/` and `sops/example.sop.md`.
+
+Emission is **without translation**: the `claude-code` target aggregates the
+real hooks into one `hooks.json` list. The `kiro-cli` target emits no hooks —
+**a deliberate choice, not a runtime limitation.** kiro-cli
+*does* execute hooks (verified 2026-09-05: `kiro-cli agent validate` accepts a
+`hooks` block, and `kiro-cli chat` ran an `agentSpawn` hook under the default
+engine), but its model differs: hooks live **inside the agent config**
+(`.kiro/agents/<name>.json`, a `hooks` object keyed by `agentSpawn` /
+`userPromptSubmit` / `preToolUse` / `postToolUse`), and the action is a shell
+command whose stdout is injected as context — there is no `askAgent`. The
+package's hooks (`then.type: askAgent`, `when.type: fileCreated`) do not map
+onto that model, so nothing is emitted rather than emitting something lossy.
+If a kiro-cli hook is ever wanted, its home is a `hooks` block built in
+`emit_kiro_cli_agent()` — not a `hooks/` file. The neutral field names in
+`hooks/*.hook.json` remain the contract for hosts that add their own mapping.
 
 `hooks/wire-new-capability.hook.json`:
 
@@ -3464,7 +3484,7 @@ Execute in order. Every task ends in a demoable, tested increment; do not start 
 **Task 13 — Optional layers.** Add `agents/readonly-investigator.agent.json` + its prompt (15.4) and the `unattended/` templates (16.3), jobs disabled.
 *Demo:* the investigator manifest contains no write tools and read-verb-only shell regexes; `jobs.template.json` has `"enabled": false` on every job; `policy.template.json` ships empty with its empty-means-CLEAR semantics stated inline.
 
-**Task 14 — SOPs, hooks, CI.** Write `wire-new-capability.sop.md` (10.4), `adversarial-review.sop.md` (9.2), `example.sop.md`, declaring the first two in `sopNames` in the same change (a declared-but-missing SOP is ERROR #11; an undeclared-on-disk SOP is WARN #12); the three hooks (13.5); the CI workflow (17.4).
+**Task 14 — SOPs, hooks, CI.** Write `wire-new-capability.sop.md` (10.4), `adversarial-review.sop.md` (9.2), `example.sop.md`, declaring the first two in `sopNames` in the same change (a declared-but-missing SOP is ERROR #11; an undeclared-on-disk SOP is WARN #12); the three hooks plus `example.hook.json` (13.5); the CI workflow (17.4).
 *Demo:* CI runs both validator families and the tests; deliberately half-wiring a capability (skip its routing row) turns CI red; completing the row turns it green.
 
 ---

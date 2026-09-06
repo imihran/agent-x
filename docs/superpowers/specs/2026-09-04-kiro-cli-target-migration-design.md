@@ -58,6 +58,21 @@ wrong on exactly these points:
    from the stable configuration-reference page. `kiro-cli --help-all`
    surfaces no hook-related subcommand or concept at all.
 
+   > **Correction (2026-09-05, kiro-cli 2.20.1).** This finding was wrong —
+   > it over-read two narrow signals. Re-probed: `kiro-cli agent validate`
+   > accepts a `hooks` block (`agentSpawn` / `userPromptSubmit` /
+   > `preToolUse` / `postToolUse`, each with a `command`; the legacy
+   > `conversation_start` shape is rejected; a bogus trigger name is
+   > rejected), and `kiro-cli chat --no-interactive` **executed** an
+   > `agentSpawn` hook under the default engine ("✓ 1 of 1 hooks finished",
+   > marker file written). `--help-all` shows no *subcommand* because hooks
+   > are agent-config, not CLI surface — that absence proved nothing.
+   > **The decision below still stands:** the assembler emits no kiro-cli
+   > hooks, now because the model doesn't fit (kiro-cli hooks run a shell
+   > command with stdout injected as context; there is no `askAgent`, and
+   > the package's hooks are all `then.type: askAgent`), not because the
+   > runtime is missing. See `rebuild-spec.md` §13.5.
+
 All probe files were temporary and removed after each test; none were
 committed.
 
@@ -122,9 +137,9 @@ kiro-cli chat --agent <name>   (invoked by build/kiro_agent.py, cwd=workspace-ro
     Steering is listed in `resources` explicitly even though it auto-loads
     (finding #1) — self-documenting, and doesn't depend on an unstated
     default that could change across kiro-cli versions.
-  - No hook emission — no consumer in the target engine (finding #5). Same
-    precedent as today's `generic` target ("omitted — no hook runtime
-    assumed").
+  - No hook emission — see the finding #5 correction: kiro-cli *does* run
+    agent-config hooks, but the package's `askAgent` hooks don't fit its
+    shell-command model, so nothing is emitted rather than something lossy.
 - `hook_files()` helper stays (still used by `target_claude_code`).
 
 ### `build/deploy.py`
@@ -210,9 +225,11 @@ location. `build/ci.py` (93→now 101 tests, +new ones) must stay green.
   Real, pre-existing gap (validated by `validate-wiring.py` but not emitted
   anywhere), unrelated to the kiro-cli/GUI distinction — affects all three
   targets equally. Not addressed here.
-- **kiro-cli's `--v3` experimental engine's inline `hooks` object.** Only
-  documented on the v3 page; our target assumes the default v2 engine.
-  Revisit if/when v3 becomes the installed default.
+- **Emitting kiro-cli hooks at all.** kiro-cli runs agent-config hooks under
+  the default engine (see the finding #5 correction), but the mapping from
+  the package's `askAgent` hooks is lossy. A useful `agentSpawn` hook that
+  runs `validate-wiring.py` and injects the result is possible in
+  `emit_kiro_cli_agent()`; not built here.
 - **Root directory restructuring** (`context/`, `skills/`, `sops/` etc. into
   one consolidated folder). Raised and explicitly declined in favor of the
   current flat layout, which matches the original spec's Section 3 package

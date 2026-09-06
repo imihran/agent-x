@@ -1,0 +1,13 @@
+{
+  "name": "{{Example Hook}}",
+  "version": "1.0.0",
+  "description": "{{What this hook automates and when it fires. Copy this file to hooks/<name>.hook.json to create a real one. This template is excluded from every target's output by build/assemble.py's hook_files() — the same inert-template pattern as skills/example-skill/ and sops/example.sop.md.}}",
+  "when": {
+    "type": "{{fileCreated | postToolUse | userTriggered}}",
+    "patterns": ["{{glob(s) the trigger matches, e.g. skills/*/SKILL.md — omit for userTriggered}}"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "{{What the agent should do when this fires. Host-neutral shape: the claude-code target aggregates real hooks into hooks.json; a kiro-cli hook is instead a `hooks` block inside the agent config (agentSpawn/userPromptSubmit/pre|postToolUse -> shell command, stdout injected as context, no askAgent) — see docs/spec/rebuild-spec.md 13.5.}}"
+  }
+}

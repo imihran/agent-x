@@ -56,10 +56,12 @@ def test_undeclared_sop_not_allowlisted_fails_strict(tmp_path):
 def test_hooks_are_valid_json_and_reference_wiring_sop():
     hooks = sorted((ROOT / "hooks").glob("*.hook.json"))
 
+    # the three real hooks, plus the inert copy-me template
     assert {p.name for p in hooks} == {
         "wire-new-capability.hook.json",
         "wire-on-agent-write.hook.json",
         "wiring-audit.hook.json",
+        "example.hook.json",
     }
     for path in hooks:
         hook = json.loads(path.read_text(encoding="utf-8"))
@@ -67,6 +69,16 @@ def test_hooks_are_valid_json_and_reference_wiring_sop():
         assert hook["when"]["type"]
         assert hook["then"]["type"] == "askAgent"
     assert "sops/wire-new-capability.sop.md" in (ROOT / "hooks" / "wire-new-capability.hook.json").read_text(encoding="utf-8")
+
+
+def test_example_hook_is_an_inert_template_excluded_from_output(tmp_path):
+    pkg = copy_package(tmp_path)
+    claude_out = tmp_path / "claude"
+    assert run_assemble_at(pkg, "claude-code", claude_out).returncode == 0
+
+    names = {hook["name"] for hook in json.loads((claude_out / "hooks.json").read_text(encoding="utf-8"))}
+    assert "{{Example Hook}}" not in names
+    assert names == {"Wire New Capability", "Wire Capability On Agent Write", "Capability Wiring Audit"}
 
 
 def test_assembler_emits_hooks_for_claude_but_not_kiro_cli(tmp_path):

@@ -171,11 +171,13 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
 
 
 def hook_files() -> list[Path]:
-    """Real hook files only — an empty hooks/ directory (as ships today)
-    must not produce a spurious hooks.json / hooks/ output."""
+    """Real hook files only — an empty hooks/ directory produces no
+    hooks.json output, and hooks/example.hook.json is an inert copy-me
+    template (like skills/example-skill/ and sops/example.sop.md) that must
+    never reach a target's output."""
     if not HOOKS.is_dir():
         return []
-    return sorted(HOOKS.glob("*.hook.json"))
+    return sorted(p for p in HOOKS.glob("*.hook.json") if p.name != "example.hook.json")
 
 
 def target_claude_code(manifest: dict, out: Path) -> None:

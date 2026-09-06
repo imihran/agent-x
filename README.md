@@ -80,7 +80,8 @@ The full rebuild specification is preserved at:
     ├── hooks/
     │   ├── wire-new-capability.hook.json
     │   ├── wire-on-agent-write.hook.json
-    │   └── wiring-audit.hook.json
+    │   ├── wiring-audit.hook.json
+    │   └── example.hook.json      # inert copy-me template
     ├── guards/
     │   ├── check-tool-contract.py
     │   └── check-cli-references.py

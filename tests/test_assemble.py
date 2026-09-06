@@ -194,7 +194,9 @@ def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
 
 def test_claude_code_target_writes_hooks_json_when_hooks_exist(tmp_path):
     pkg = copy_package(tmp_path)
-    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+    # not "example" — hooks/example.hook.json is the reserved inert template,
+    # excluded from output like skills/example-skill and sops/example.sop.md
+    declare_hook(pkg, "demo", {"event": "SessionStart", "command": "true"})
     out_dir = tmp_path / "out"
 
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
@@ -296,7 +298,7 @@ def test_kiro_cli_target_context_globs_matching_prompt_partial_is_hard_error(tmp
 
 def test_kiro_cli_target_never_emits_hooks(tmp_path):
     pkg = copy_package(tmp_path)
-    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+    declare_hook(pkg, "demo", {"event": "SessionStart", "command": "true"})
     out_dir = tmp_path / "out"
 
     result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
@@ -470,7 +472,7 @@ def test_claude_code_target_is_deterministic_across_two_runs(tmp_path):
     pkg = copy_package(tmp_path)
     declare_skill(pkg, "example-skill")
     declare_sop(pkg, "example-sop")
-    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+    declare_hook(pkg, "demo", {"event": "SessionStart", "command": "true"})
     out_a = tmp_path / "out_a"
     out_b = tmp_path / "out_b"
 
@@ -486,7 +488,7 @@ def test_kiro_cli_target_is_deterministic_across_two_runs(tmp_path):
     pkg = copy_package(tmp_path)
     declare_skill(pkg, "example-skill")
     declare_sop(pkg, "example-sop")
-    declare_hook(pkg, "example", {"event": "SessionStart", "command": "true"})
+    declare_hook(pkg, "demo", {"event": "SessionStart", "command": "true"})
     out_a = tmp_path / "out_a"
     out_b = tmp_path / "out_b"
 
