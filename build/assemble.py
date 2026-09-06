@@ -116,6 +116,17 @@ def copy_tree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst)
 
 
+def rewrite_tree_citations(root: Path, citation_map: dict[str, str]) -> None:
+    """Rewrite every markdown file under `root` in place, mapping source
+    citation tokens to their emitted .claude/ locations. Sorted walk;
+    writes only when the text actually changes (determinism + no churn)."""
+    for md in sorted(root.rglob("*.md")):
+        original = md.read_text(encoding="utf-8")
+        rewritten = target_paths.rewrite_citations(original, citation_map)
+        if rewritten != original:
+            md.write_text(rewritten, encoding="utf-8")
+
+
 def declared_skill_dirs(manifest: dict) -> list[Path]:
     dirs: list[Path] = []
     for name in manifest.get("skillNames", []):
@@ -209,14 +220,23 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         + "<!-- Always-on project context (loaded via imports). -->\n"
         + imports,
     )
+    citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
+
     for d in declared_skill_dirs(manifest):
-        copy_tree(d, out / ".claude" / "skills" / d.name)
-    copy_sops(manifest, out)
+        dst = out / ".claude" / "skills" / d.name
+        copy_tree(d, dst)
+        rewrite_tree_citations(dst, citation_map)
+
+    for p in declared_sop_files(manifest):
+        body = target_paths.rewrite_citations(p.read_text(encoding="utf-8"), citation_map)
+        write(out / ".claude" / "sops" / p.name, body)
+
     emit_mcp(manifest, out / ".mcp.json")
+
     hooks = hook_files()
     if hooks:
         aggregated = [json.loads(p.read_text(encoding="utf-8")) for p in hooks]
-        write(out / "hooks.json", json.dumps(aggregated, indent=2) + "\n")
+        write(out / ".claude" / "hooks.json", json.dumps(aggregated, indent=2) + "\n")
 
 
 def target_kiro_cli(manifest: dict, out: Path) -> None:

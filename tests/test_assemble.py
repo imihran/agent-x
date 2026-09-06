@@ -194,9 +194,14 @@ def test_claude_code_target_copies_declared_skill_dir(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    copied = out_dir / ".claude" / "skills" / "example-skill" / "SKILL.md"
-    original = pkg / "skills" / "example-skill" / "SKILL.md"
-    assert copied.read_text(encoding="utf-8") == original.read_text(encoding="utf-8")
+    copied = (out_dir / ".claude" / "skills" / "example-skill" / "SKILL.md").read_text(encoding="utf-8")
+    original = (pkg / "skills" / "example-skill" / "SKILL.md").read_text(encoding="utf-8")
+    # the copy is verbatim except that source citations are rewritten to the
+    # target's emitted .claude/ locations
+    assert "# Example Skill Template" in copied
+    assert ".claude/sops/wire-new-capability.sop.md" in copied
+    assert "sops/wire-new-capability.sop.md" in original
+    assert "sops/wire-new-capability.sop.md" not in copied.replace(".claude/sops/wire-new-capability.sop.md", "")
 
 
 def test_claude_code_target_copies_declared_sops(tmp_path):
@@ -207,8 +212,9 @@ def test_claude_code_target_copies_declared_sops(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    copied = out_dir / "sops" / "example-sop.sop.md"
+    copied = out_dir / ".claude" / "sops" / "example-sop.sop.md"
     assert copied.read_text(encoding="utf-8") == "# Example SOP\n\nDo the thing.\n"
+    assert not (out_dir / "sops").exists()
 
 
 def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
@@ -220,6 +226,7 @@ def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
+    assert not (out_dir / ".claude" / "hooks.json").exists()
     assert not (out_dir / "hooks.json").exists()
 
 
@@ -233,10 +240,52 @@ def test_claude_code_target_writes_hooks_json_when_hooks_exist(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    hooks = json.loads((out_dir / "hooks.json").read_text(encoding="utf-8"))
+    hooks = json.loads((out_dir / ".claude" / "hooks.json").read_text(encoding="utf-8"))
     assert {json.dumps(hook, sort_keys=True) for hook in hooks} >= {
         json.dumps({"event": "SessionStart", "command": "true"}, sort_keys=True)
     }
+
+
+def test_claude_code_target_rewrites_skill_citations_to_emitted_paths(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    skill_md = (out_dir / ".claude" / "skills" / "demo-skill" / "SKILL.md").read_text(encoding="utf-8")
+    # demo-skill/SKILL.md cites context/guardrails/... and sops/wire-new-capability.sop.md
+    assert ".claude/rules/guardrails-confirm-before-execute.md" in skill_md
+    assert ".claude/sops/wire-new-capability.sop.md" in skill_md
+    assert "context/guardrails/confirm-before-execute.md" not in skill_md
+    assert "sops/wire-new-capability.sop.md" not in skill_md.replace(".claude/sops/wire-new-capability.sop.md", "")
+    # a non-mapped path is left alone
+    assert "tool/toolkit/toolkit.py" in skill_md
+
+
+def test_claude_code_target_copies_bundled_skill_files(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    bundled = out_dir / ".claude" / "skills" / "escalation-handoff" / "templates" / "handoff.md"
+    assert bundled.is_file()
+
+
+def test_claude_code_target_rewrites_sop_citations(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sop = (out_dir / ".claude" / "sops" / "wire-new-capability.sop.md").read_text(encoding="utf-8")
+    # wire-new-capability.sop.md cites sops/adversarial-review.sop.md — a real
+    # on-disk SOP, in the citation map — so it must be rewritten under .claude/.
+    assert ".claude/sops/adversarial-review.sop.md" in sop
+    # the bare token only survives as the tail of the rewritten path
+    assert "sops/adversarial-review.sop.md" not in sop.replace(".claude/sops/adversarial-review.sop.md", "")
+    # a non-mapped context/ path is left untouched verbatim
+    assert "context/scripts/validate-wiring.py" in sop
 
 
 def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):

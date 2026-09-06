@@ -76,7 +76,7 @@ def test_example_hook_is_an_inert_template_excluded_from_output(tmp_path):
     claude_out = tmp_path / "claude"
     assert run_assemble_at(pkg, "claude-code", claude_out).returncode == 0
 
-    names = {hook["name"] for hook in json.loads((claude_out / "hooks.json").read_text(encoding="utf-8"))}
+    names = {hook["name"] for hook in json.loads((claude_out / ".claude" / "hooks.json").read_text(encoding="utf-8"))}
     assert "{{Example Hook}}" not in names
     assert names == {"Wire New Capability", "Wire Capability On Agent Write", "Capability Wiring Audit"}
 
@@ -90,7 +90,7 @@ def test_assembler_emits_hooks_for_claude_but_not_kiro_cli(tmp_path):
     assert run_assemble_at(pkg, "claude-code", claude_out).returncode == 0
 
     assert not (kiro_cli_out / "hooks").exists()
-    hooks_json = json.loads((claude_out / "hooks.json").read_text(encoding="utf-8"))
+    hooks_json = json.loads((claude_out / ".claude" / "hooks.json").read_text(encoding="utf-8"))
     assert {hook["name"] for hook in hooks_json} >= {"Wire New Capability", "Capability Wiring Audit"}
 
 
