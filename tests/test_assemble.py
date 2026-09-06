@@ -130,17 +130,48 @@ def assert_trees_byte_identical(a: Path, b: Path) -> None:
 # --- claude-code target ---
 
 
-def test_claude_code_target_writes_claude_md_with_prompt_and_eager_tiers(tmp_path):
+def test_claude_code_target_writes_thin_claude_md_with_prompt_and_rule_imports(tmp_path):
     out_dir = tmp_path / "out"
 
     result = run_assemble("--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
     claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    # prompt half still present
     assert IDENTITY_MARKER in claude_md
     assert DOMAIN_MARKER in claude_md
-    assert ROUTING_MARKER in claude_md
-    assert claude_md.index(IDENTITY_MARKER) < claude_md.index(ROUTING_MARKER)
+    assert claude_md.index(IDENTITY_MARKER) < claude_md.index(DOMAIN_MARKER)
+    # eager tiers are NO LONGER inlined — they are imported
+    assert ROUTING_MARKER not in claude_md
+    assert GUARDRAIL_MARKER not in claude_md
+    assert "@.claude/rules/routing-00-core.md" in claude_md
+    assert "@.claude/rules/guardrails-no-fabrication.md" in claude_md
+
+
+def test_claude_code_target_emits_one_rule_file_per_eager_context_file(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    routing = (out_dir / ".claude" / "rules" / "routing-00-core.md").read_text(encoding="utf-8")
+    assert ROUTING_MARKER in routing
+    assert "<!-- context/routing/00-core.md -->" in routing
+    guardrail = (out_dir / ".claude" / "rules" / "guardrails-no-fabrication.md").read_text(encoding="utf-8")
+    assert GUARDRAIL_MARKER in guardrail
+
+
+def test_claude_code_target_claude_md_import_list_is_sorted_and_complete(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    imports = [line[len("@.claude/rules/"):] for line in claude_md.splitlines()
+               if line.startswith("@.claude/rules/")]
+    rule_files = sorted(p.name for p in (out_dir / ".claude" / "rules").glob("*.md"))
+    assert imports == rule_files
 
 
 def test_claude_code_target_writes_mcp_json(tmp_path):

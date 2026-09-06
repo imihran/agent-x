@@ -19,11 +19,15 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import target_paths  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = ROOT / "context"
 SKILLS = ROOT / "skills"
 SOPS = ROOT / "sops"
 HOOKS = ROOT / "hooks"
+AGENTS = ROOT / "agents"
 
 TARGETS = ("claude-code", "kiro-cli", "generic")
 
@@ -85,6 +89,20 @@ def eager_block(files: list[Path]) -> str:
         rel = f.relative_to(ROOT)
         parts.append(f"<!-- {rel} -->\n{f.read_text(encoding='utf-8').strip()}")
     return "\n\n".join(parts) + ("\n" if parts else "")
+
+
+def emit_claude_rules(manifest: dict, out: Path) -> list[str]:
+    """Write each eager-tier context file as its own .claude/rules/ file,
+    keeping the `<!-- context/<path> -->` provenance comment. Returns the
+    emitted filenames, sorted — that IS the CLAUDE.md import order."""
+    names: list[str] = []
+    for f in expand_context_globs(manifest):
+        rel = f.relative_to(CONTEXT).as_posix()
+        fname = target_paths.rule_filename(rel)
+        body = f"<!-- context/{rel} -->\n{f.read_text(encoding='utf-8').strip()}\n"
+        write(out / ".claude" / "rules" / fname, body)
+        names.append(fname)
+    return sorted(names)
 
 
 def write(path: Path, text: str) -> None:
@@ -182,8 +200,15 @@ def hook_files() -> list[Path]:
 
 def target_claude_code(manifest: dict, out: Path) -> None:
     prompt = resolve_includes(manifest)
-    eager = eager_block(expand_context_globs(manifest))
-    write(out / "CLAUDE.md", prompt + "\n---\n\n" + eager)
+    rule_names = emit_claude_rules(manifest, out)
+    imports = "".join(f"@.claude/rules/{n}\n" for n in rule_names)
+    write(
+        out / "CLAUDE.md",
+        prompt
+        + "\n---\n\n"
+        + "<!-- Always-on project context (loaded via imports). -->\n"
+        + imports,
+    )
     for d in declared_skill_dirs(manifest):
         copy_tree(d, out / ".claude" / "skills" / d.name)
     copy_sops(manifest, out)
