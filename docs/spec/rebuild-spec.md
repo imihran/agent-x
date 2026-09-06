@@ -59,6 +59,8 @@ agent-package/
 ├── build/
 │   ├── assemble.py               # stdlib assembler: resolves includes, expands globs,
 │   │                             #   emits per-target artifacts into dist/
+│   ├── target_paths.py           # citation-rewrite map for the claude-code target (§13.6)
+│   ├── validate_targets.py       # output-side validator: asserts each target's emitted layout
 │   └── ci.py                     # the single CI entry point — any CI system calls it
 ├── context/
 │   ├── prompt/                   # system-prompt partials — loaded via includes ONLY
@@ -1766,13 +1768,16 @@ One neutral source tree, per-host artifacts. `build/assemble.py` compiles the pa
 
 | Concept | `claude-code` target | `kiro-cli` target | `generic` target |
 |---|---|---|---|
-| System prompt | `dist/claude-code/CLAUDE.md` (assembled prompt + eager tiers appended) | `dist/kiro-cli/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
-| Skills | `dist/claude-code/.claude/skills/<name>/` | `dist/kiro-cli/skills/<name>/` | `dist/generic/skills-catalog.md` (frontmatter index for prompt injection) + copied dirs |
-| SOPs | `dist/claude-code/sops/<name>.sop.md` (copied — skills and hooks cite these paths) | `dist/kiro-cli/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
+| System prompt | `dist/claude-code/CLAUDE.md` — thin: assembled prompt + `\n---\n` + one `@.claude/rules/<file>` import line per eager tier file, sorted | `dist/kiro-cli/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
+| Eager context | `dist/claude-code/.claude/rules/<tier>-<file>.md` — one file per eager context file, keeping the `<!-- context/<relpath> -->` provenance comment; loaded ONLY via the `@`-imports in `CLAUDE.md` | `dist/kiro-cli/steering/<tier>-<file>.md` | inline in `system-prompt.txt` |
+| Skills | `dist/claude-code/.claude/skills/<name>/` (bundled `*.md` have their `context/…` and `sops/…` citations rewritten to the emitted `.claude/…` paths) | `dist/kiro-cli/skills/<name>/` | `dist/generic/skills-catalog.md` (frontmatter index for prompt injection) + copied dirs |
+| SOPs | `dist/claude-code/.claude/sops/<name>.sop.md` (citations rewritten) | `dist/kiro-cli/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
 | MCP servers | `dist/claude-code/.mcp.json` | `dist/kiro-cli/settings/mcp.json` | `dist/generic/mcp.json` |
-| Agent activation | n/a (host loads `CLAUDE.md` directly) | `dist/kiro-cli/agents/<name>.json` — `resources` field points at the steering/skills paths above; kiro-cli's own `--agent <name>` flag activates it | n/a |
-| Hooks | `dist/claude-code/hooks.json` (aggregated list, neutral schema — no trigger rewriting) | omitted by choice — the assembler does not translate hooks for this target (kiro-cli *does* run agent-config hooks; §13.5) | omitted (no hook runtime assumed) |
-| Wiring proof | the validator runs on the SOURCE tree — identical for all targets | same | same |
+| Agent activation | `dist/claude-code/.claude/agents/<manifest.name>.md` — frontmatter `name:` + json-quoted `description:`, body = assembled prompt; Claude Code discovers it by scanning `.claude/agents/*.md` and matching frontmatter `name`, so `claude --agent <name>` resolves here | `dist/kiro-cli/agents/<name>.json` — `resources` field points at the steering/skills paths above; kiro-cli's own `--agent <name>` flag activates it | n/a |
+| Subagents | `dist/claude-code/.claude/agents/<sub>.md` — one per `subagentNames`; frontmatter `tools:` narrowed to non-write ∩ `allowedTools`; body = resolved subagent prompt + inlined `contextGlobs` | `dist/kiro-cli/agents/<sub>.json` — one per `subagentNames`, built clean like the primary; `shellAllowedCommands` kept if present | n/a |
+| Hooks | `dist/claude-code/.claude/hooks.json` (aggregated neutral list — no matcher/event translation, so it will NOT auto-run; §13.7 gap 2). Only emitted when real hook files exist | omitted by choice — the assembler does not translate hooks for this target (kiro-cli *does* run agent-config hooks; §13.5) | omitted (no hook runtime assumed) |
+| Settings | `dist/claude-code/.claude/settings.json` — always emitted; `{"agent": "<name>"}` iff `manifest.claudeSettings.defaultAgent` is true, else `{}` | n/a (agent config carries everything) | n/a |
+| Wiring proof | the validator runs on the SOURCE tree — identical for all targets; `build/validate_targets.py` additionally asserts the emitted output layout per target | same | same |
 
 **Verified kiro-cli agent-activation behavior** (tested live against kiro-cli
 2.20.1, default `--agent-engine v2`, 2026-09-04 — the hosted docs are
@@ -1800,6 +1805,9 @@ source of truth):
 
 ### 13.3 `build/assemble.py`
 
+The `claude-code` emitter delegates its path mapping to `build/target_paths.py`
+(§13.6); `build/validate_targets.py` (§13.6) asserts the emitted layout.
+
 ```python
 #!/usr/bin/env python3
 """Assemble the agent package into per-host artifacts.
@@ -1822,11 +1830,19 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import target_paths  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = ROOT / "context"
 SKILLS = ROOT / "skills"
 SOPS = ROOT / "sops"
 HOOKS = ROOT / "hooks"
+AGENTS = ROOT / "agents"
+
+TARGETS = ("claude-code", "kiro-cli", "generic")
+
+WRITE_VERBS = {"write", "edit", "delete", "create", "update", "patch"}
 
 
 def fail(msg: str) -> None:
@@ -1846,6 +1862,9 @@ def load_manifest() -> dict:
 
 
 def resolve_includes(manifest: dict) -> str:
+    """Read systemPromptIncludes in listed order and concatenate them,
+    separated by blank lines. A missing include is a hard error — the
+    order IS the assembled prompt order (README.md 13.1)."""
     parts: list[str] = []
     for rel in manifest.get("systemPromptIncludes", []):
         path = ROOT / rel
@@ -1855,23 +1874,70 @@ def resolve_includes(manifest: dict) -> str:
     return "\n\n".join(parts) + "\n"
 
 
-def expand_globs(manifest: dict) -> list[Path]:
+def expand_context_globs(manifest: dict) -> list[Path]:
+    """contextGlobs expand relative to context/, sorted by filename. A glob
+    matching any context/prompt/ file is a hard error — prompt partials load
+    through systemPromptIncludes ONLY (README.md 13.1); matching them here
+    would load them twice."""
     files: list[Path] = []
     for pattern in manifest.get("contextGlobs", []):
         matches = sorted(CONTEXT.glob(pattern))
-        if not matches:
-            print(f"ASSEMBLE WARN: glob matched nothing: {pattern}", file=sys.stderr)
         for m in matches:
             if not m.is_file():
                 continue
-            # Double-load protection: prompt partials load via includes ONLY.
-            if "prompt" in m.relative_to(CONTEXT).parts[:1]:
+            if m.relative_to(CONTEXT).parts[0] == "prompt":
                 fail(
                     f"contextGlobs must not match prompt partials: {pattern} -> "
                     f"{m.relative_to(ROOT)} (would load it twice)"
                 )
             files.append(m)
     return files
+
+
+def eager_block(files: list[Path]) -> str:
+    """Render eager-tier files with a source comment per file, so the
+    assembled prompt shows where each rule came from."""
+    parts = []
+    for f in files:
+        rel = f.relative_to(ROOT)
+        parts.append(f"<!-- {rel} -->\n{f.read_text(encoding='utf-8').strip()}")
+    return "\n\n".join(parts) + ("\n" if parts else "")
+
+
+def emit_claude_rules(manifest: dict, out: Path) -> list[str]:
+    """Write each eager-tier context file as its own .claude/rules/ file,
+    keeping the `<!-- context/<path> -->` provenance comment. Returns the
+    emitted filenames, sorted — that IS the CLAUDE.md import order."""
+    names: list[str] = []
+    for f in expand_context_globs(manifest):
+        rel = f.relative_to(CONTEXT).as_posix()
+        fname = target_paths.rule_filename(rel)
+        body = f"<!-- context/{rel} -->\n{f.read_text(encoding='utf-8').strip()}\n"
+        write(out / ".claude" / "rules" / fname, body)
+        names.append(fname)
+    return sorted(names)
+
+
+def write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def copy_tree(src: Path, dst: Path) -> None:
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
+def rewrite_tree_citations(root: Path, citation_map: dict[str, str]) -> None:
+    """Rewrite every markdown file under `root` in place, mapping source
+    citation tokens to their emitted .claude/ locations. Sorted walk;
+    writes only when the text actually changes (determinism + no churn)."""
+    for md in sorted(root.rglob("*.md")):
+        original = md.read_text(encoding="utf-8")
+        rewritten = target_paths.rewrite_citations(original, citation_map)
+        if rewritten != original:
+            md.write_text(rewritten, encoding="utf-8")
 
 
 def declared_skill_dirs(manifest: dict) -> list[Path]:
@@ -1902,42 +1968,9 @@ def copy_sops(manifest: dict, out: Path) -> None:
         write(out / "sops" / p.name, p.read_text(encoding="utf-8"))
 
 
-def copy_tree(src: Path, dst: Path) -> None:
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-
-
-def eager_block(files: list[Path]) -> str:
-    parts = []
-    for f in files:
-        rel = f.relative_to(ROOT)
-        parts.append(f"<!-- {rel} -->\n{f.read_text(encoding='utf-8').strip()}")
-    return "\n\n".join(parts) + ("\n" if parts else "")
-
-
-def write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-
-
 def emit_mcp(manifest: dict, path: Path) -> None:
     write(path, json.dumps({"mcpServers": manifest.get("mcpServers", {})},
-                           indent=2, sort_keys=True) + "\n")
-
-
-def target_claude_code(manifest: dict, out: Path) -> None:
-    prompt = resolve_includes(manifest)
-    eager = eager_block(expand_globs(manifest))
-    write(out / "CLAUDE.md", prompt + "\n---\n\n" + eager)
-    for d in declared_skill_dirs(manifest):
-        copy_tree(d, out / ".claude" / "skills" / d.name)
-    copy_sops(manifest, out)
-    emit_mcp(manifest, out / ".mcp.json")
-    if HOOKS.is_dir():
-        hooks = [json.loads(p.read_text(encoding="utf-8"))
-                 for p in sorted(HOOKS.glob("*.hook.json"))]
-        write(out / "hooks.json", json.dumps(hooks, indent=2) + "\n")
+                            indent=2, sort_keys=True) + "\n")
 
 
 def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
@@ -1979,9 +2012,146 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
     write(agents_dir / f"{name}.json", json.dumps(config, indent=2, sort_keys=True) + "\n")
 
 
+def emit_kiro_subagents(manifest: dict, agents_dir: Path) -> None:
+    """Declared subagents as kiro-cli agent configs, alongside the primary.
+    Built clean from the source spec (not raw pass-through) so the emitted
+    file is a valid kiro-cli agent config, mirroring emit_kiro_cli_agent."""
+    for p in subagent_agent_files(manifest):
+        spec = json.loads(p.read_text(encoding="utf-8"))
+        config = {
+            "name": spec["name"],
+            "description": spec.get("description", ""),
+            "prompt": None,
+            "mcpServers": {},
+            "tools": spec.get("tools") or ["*"],
+            "allowedTools": spec.get("allowedTools", []),
+            "resources": [
+                "file://.kiro/steering/**/*.md",
+                "skill://.kiro/skills/*/SKILL.md",
+            ],
+            "includeMcpJson": True,
+            "model": None,
+            "welcomeMessage": spec["name"],
+        }
+        if spec.get("shellAllowedCommands"):
+            config["shellAllowedCommands"] = spec["shellAllowedCommands"]
+        write(agents_dir / f"{spec['name']}.json",
+              json.dumps(config, indent=2, sort_keys=True) + "\n")
+
+
+def hook_files() -> list[Path]:
+    """Real hook files only — an empty hooks/ directory produces no
+    hooks.json output, and hooks/example.hook.json is an inert copy-me
+    template (like skills/example-skill/ and sops/example.sop.md) that must
+    never reach a target's output."""
+    if not HOOKS.is_dir():
+        return []
+    return sorted(p for p in HOOKS.glob("*.hook.json") if p.name != "example.hook.json")
+
+
+def emit_claude_agent_file(manifest: dict, prompt: str, out: Path) -> None:
+    """The generated Claude Code project agent. Claude discovers agents by
+    scanning .claude/agents/*.md and matching frontmatter `name`;
+    `claude --agent <name>` resolves here."""
+    name = manifest.get("name")
+    if not name:
+        fail("agent.manifest.json has no name — required for the claude-code agent file")
+    desc = manifest.get("description") or f"{name} — assembled by build/assemble.py"
+    frontmatter = f"---\nname: {name}\ndescription: {json.dumps(desc)}\n---\n\n"
+    write(out / ".claude" / "agents" / f"{name}.md", frontmatter + prompt)
+
+
+def subagent_agent_files(manifest: dict) -> list[Path]:
+    files: list[Path] = []
+    for name in manifest.get("subagentNames", []):
+        p = AGENTS / f"{name}.agent.json"
+        if not p.is_file():
+            fail(f"subagentNames entry has no file: agents/{name}.agent.json")
+        files.append(p)
+    return files
+
+
+def _subagent_body(spec: dict, name: str) -> str:
+    parts: list[str] = []
+    for rel in spec.get("systemPromptIncludes", []):
+        path = ROOT / rel
+        if not path.is_file():
+            fail(f"subagent {name}: systemPromptIncludes missing on disk: {rel}")
+        parts.append(path.read_text(encoding="utf-8").strip())
+    for pattern in spec.get("contextGlobs", []):
+        for m in sorted(CONTEXT.glob(pattern)):
+            if m.is_file():
+                rel = m.relative_to(ROOT).as_posix()
+                parts.append(f"<!-- {rel} -->\n{m.read_text(encoding='utf-8').strip()}")
+    return "\n\n".join(parts)
+
+
+def emit_claude_subagent(spec: dict, out: Path) -> None:
+    """Translate agents/<name>.agent.json into a Claude Code subagent file.
+    Read-only guarantee rests on `tools:` — write verbs are dropped.
+    shellAllowedCommands has no Claude subagent-file equivalent (mapping gap)."""
+    name = spec["name"]
+    tools = [t for t in spec.get("tools", []) if str(t).lower() not in WRITE_VERBS]
+    allowed = spec.get("allowedTools")
+    if allowed:
+        narrowed = [t for t in tools if t in allowed]
+        tools = narrowed or list(allowed)
+    fm = ["---", f"name: {name}", f"description: {json.dumps(spec.get('description', ''))}"]
+    if tools:
+        fm.append(f"tools: {', '.join(tools)}")
+    fm.append("---")
+    write(out / ".claude" / "agents" / f"{name}.md",
+          "\n".join(fm) + "\n\n" + _subagent_body(spec, name) + "\n")
+
+
+def emit_claude_settings(manifest: dict, out: Path) -> None:
+    """.claude/settings.json — always emitted. Declares the default agent
+    only when the manifest opts in (claudeSettings.defaultAgent), so a bare
+    `claude` picks up Agent X; otherwise `claude --agent <name>` is explicit."""
+    settings: dict = {}
+    if manifest.get("claudeSettings", {}).get("defaultAgent"):
+        settings["agent"] = manifest["name"]
+    write(out / ".claude" / "settings.json",
+          json.dumps(settings, indent=2, sort_keys=True) + "\n")
+
+
+def target_claude_code(manifest: dict, out: Path) -> None:
+    prompt = resolve_includes(manifest)
+    rule_names = emit_claude_rules(manifest, out)
+    imports = "".join(f"@.claude/rules/{n}\n" for n in rule_names)
+    write(
+        out / "CLAUDE.md",
+        prompt
+        + "\n---\n\n"
+        + "<!-- Always-on project context (loaded via imports). -->\n"
+        + imports,
+    )
+    emit_claude_agent_file(manifest, prompt, out)
+    emit_claude_settings(manifest, out)
+    for p in subagent_agent_files(manifest):
+        emit_claude_subagent(json.loads(p.read_text(encoding="utf-8")), out)
+    citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
+
+    for d in declared_skill_dirs(manifest):
+        dst = out / ".claude" / "skills" / d.name
+        copy_tree(d, dst)
+        rewrite_tree_citations(dst, citation_map)
+
+    for p in declared_sop_files(manifest):
+        body = target_paths.rewrite_citations(p.read_text(encoding="utf-8"), citation_map)
+        write(out / ".claude" / "sops" / p.name, body)
+
+    emit_mcp(manifest, out / ".mcp.json")
+
+    hooks = hook_files()
+    if hooks:
+        aggregated = [json.loads(p.read_text(encoding="utf-8")) for p in hooks]
+        write(out / ".claude" / "hooks.json", json.dumps(aggregated, indent=2) + "\n")
+
+
 def target_kiro_cli(manifest: dict, out: Path) -> None:
     write(out / "steering" / "00-system.md", resolve_includes(manifest))
-    for f in expand_globs(manifest):
+    for f in expand_context_globs(manifest):
         rel = f.relative_to(CONTEXT)
         write(out / "steering" / "-".join(rel.parts), f.read_text(encoding="utf-8"))
     for d in declared_skill_dirs(manifest):
@@ -1989,11 +2159,12 @@ def target_kiro_cli(manifest: dict, out: Path) -> None:
     copy_sops(manifest, out)
     emit_mcp(manifest, out / "settings" / "mcp.json")
     emit_kiro_cli_agent(manifest, out / "agents")
+    emit_kiro_subagents(manifest, out / "agents")
 
 
 def target_generic(manifest: dict, out: Path) -> None:
     prompt = resolve_includes(manifest)
-    eager = eager_block(expand_globs(manifest))
+    eager = eager_block(expand_context_globs(manifest))
     write(out / "system-prompt.txt", prompt + "\n" + eager)
     emit_mcp(manifest, out / "mcp.json")
     lines = ["# Skills Catalog", ""]
@@ -2011,7 +2182,7 @@ def target_generic(manifest: dict, out: Path) -> None:
     write(out / "skills-catalog.md", "\n".join(lines) + "\n")
 
 
-TARGETS = {
+TARGET_FUNCS = {
     "claude-code": target_claude_code,
     "kiro-cli": target_kiro_cli,
     "generic": target_generic,
@@ -2020,14 +2191,16 @@ TARGETS = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True, choices=sorted(TARGETS))
+    parser.add_argument("--target", default="generic", choices=sorted(TARGETS))
     parser.add_argument("--out", default=None, help="output dir (default dist/<target>)")
     args = parser.parse_args()
 
     manifest = load_manifest()
     out = Path(args.out) if args.out else ROOT / "dist" / args.target
+    if out.exists():
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
-    TARGETS[args.target](manifest, out)
+    TARGET_FUNCS[args.target](manifest, out)
     print(f"assembled target={args.target} out={out}")
     return 0
 
@@ -2205,7 +2378,9 @@ never reaches any target's output — the same inert-template pattern as
 `skills/example-skill/` and `sops/example.sop.md`.
 
 Emission is **without translation**: the `claude-code` target aggregates the
-real hooks into one `hooks.json` list. The `kiro-cli` target emits no hooks —
+real hooks into one `.claude/hooks.json` list (a neutral list, NOT translated
+to Claude Code's native `.claude/settings.json` matcher/event `hooks` schema,
+so it will not auto-run — §13.7 gap 2). The `kiro-cli` target emits no hooks —
 **a deliberate choice, not a runtime limitation.** kiro-cli
 *does* execute hooks (verified 2026-09-05: `kiro-cli agent validate` accepts a
 `hooks` block, and `kiro-cli chat` ran an `agentSpawn` hook under the default
@@ -2258,6 +2433,100 @@ If a kiro-cli hook is ever wanted, its home is a `hooks` block built in
             "prompt": "Run python3 context/scripts/validate-wiring.py --strict and report every finding with the fix each one needs. Zero findings: report PASS in one line." }
 }
 ```
+
+### 13.6 Claude Code native layout
+
+The `claude-code` target is a native Claude Code project, not a Kiro-shaped
+blob. `build/deploy.py --target claude-code` lands it in a workspace root:
+
+```
+CLAUDE.md                          # thin: assembled prompt + @-imports
+.mcp.json
+.claude/
+  settings.json                    # {"agent": "<name>"} iff claudeSettings.defaultAgent, else {}
+  hooks.json                       # neutral aggregated list — only if real hook files exist
+  rules/<tier>-<file>.md           # one per eager context file, with <!-- context/<relpath> --> comment
+  skills/<name>/…                  # copied; bundled *.md have citations rewritten
+  sops/<name>.sop.md               # copied; citations rewritten
+  agents/<manifest.name>.md        # the primary agent — frontmatter name: + description:, body = prompt
+  agents/<subagent>.md             # one per subagentNames; tools: narrowed to non-write ∩ allowedTools
+```
+
+**The `@`-import mechanism.** Claude Code has **no `.claude/rules/` auto-load**
+— unlike kiro-cli's `.kiro/steering/`, a file under `.claude/rules/` does
+nothing unless something references it. The eager context tiers reach the
+model *only* through the `@.claude/rules/<file>` import lines the emitter
+writes into `CLAUDE.md`, one per emitted rule file, sorted by filename for
+determinism. `CLAUDE.md` itself stays thin — `target_claude_code` writes
+exactly, in order: the assembled system prompt (the `systemPromptIncludes`
+partials via `resolve_includes`), then `\n---\n\n`, then the line
+`<!-- Always-on project context (loaded via imports). -->\n`, then the
+sorted `@.claude/rules/<name>\n` import block (one line per emitted rule
+file). Guardrail and routing bodies are **not** inlined into `CLAUDE.md`;
+they live in their own rule files.
+
+**The citation-rewrite map (`build/target_paths.py`).** Skill and SOP bodies
+in the source tree cite context files and SOPs by repo-relative path
+(`context/guardrails/x.md`, `sops/y.sop.md`). The `claude-code` target emits
+those under `.claude/`, so `build/target_paths.py` owns the map that rewrites
+each citation token to its emitted location:
+
+| Source token | Emitted Claude path |
+|---|---|
+| `context/routing/<f>.md` | `.claude/rules/routing-<f>.md` |
+| `context/guardrails/<f>.md` | `.claude/rules/guardrails-<f>.md` |
+| `context/knowledge/<f>.md` | `.claude/rules/knowledge-<f>.md` |
+| `context/conventions/<f>.md` | `.claude/rules/conventions-<f>.md` |
+| `sops/<n>.sop.md` | `.claude/sops/<n>.sop.md` |
+
+`build_citation_map(context_dir, sops_dir)` builds the map from the files
+actually on disk, so a token is rewritten only when its destination genuinely
+exists in the target. `rule_filename("guardrails/no-fabrication.md")` →
+`"guardrails-no-fabrication.md"` — the same `"-".join(parts)` convention
+`target_kiro_cli` uses for steering files. `rewrite_citations` replaces
+longest tokens first so a token that is a prefix of a longer one never
+shadows it. Anything not in the map (notably `tool/…`) is left unchanged.
+
+**The `claude --agent <name>` discovery contract.** Claude Code discovers
+project agents by scanning `.claude/agents/*.md` and reading each file's
+frontmatter `name`. `claude --agent <name>` resolves to the file whose
+frontmatter `name` matches — **not** by filename (the filename mirrors `name`
+for humans only). The emitter writes `.claude/agents/<manifest.name>.md` with
+`name: <manifest.name>` in the frontmatter and the assembled prompt as the
+body; `build/validate_targets.py` asserts the frontmatter `name` matches the
+manifest `name`, because a mismatch would make `claude --agent` silently miss
+the agent.
+
+**`build/validate_targets.py`** assembles each target into a temp dir and
+asserts every manifest-declared capability (skills, SOPs, subagents, eager
+context files) lands at that target's expected path — the output-side
+counterpart to `context/scripts/validate-wiring.py`, which checks the source
+tree only. Direct run prints `TARGET VALIDATION: PASS`; it replaces the old
+per-target `assembler smoke` stages in `build/ci.py` (§17.4).
+
+### 13.7 Mapping gaps
+
+Known places where a source concept has no faithful `claude-code` target
+representation, recorded so a future pass can close them:
+
+1. **`shellAllowedCommands`** — the `readonly-investigator` subagent's shell
+   allowlist has no representation in a Claude `.claude/agents/*.md` file.
+   Claude's read-only guarantee for that subagent rests entirely on `tools:`
+   excluding write verbs. Kiro keeps the full allowlist. A user who needs a
+   shell-command allowlist under Claude must add it via `.claude/settings.json`
+   `permissions` by hand.
+2. **Hooks schema** — Claude Code's native hooks are matcher/event objects in
+   `.claude/settings.json`. The repo's `hooks/*.hook.json` are authored in a
+   host-neutral shape (`name`, `when.type`, `then.type`) that maps onto
+   neither Kiro's nor Claude's native model (§13.5). This change relocates
+   the neutral aggregated list to `.claude/hooks.json` but does not translate
+   it into Claude's matcher/event schema — so it will not auto-run under
+   Claude Code. Follow-up: a real translator, or a decision to author Claude
+   hooks separately.
+3. **`tool/toolkit/`** — cited by `demo-skill`, emitted into no target. Works
+   in dev only because the workspace root is the repo. Not addressed here.
+4. **`welcomeMessage`** — a `kiro-cli` agent-config field with no
+   `.claude/agents/*.md` equivalent. Dropped for the Claude target.
 
 ---
 
@@ -3327,12 +3596,11 @@ The canonical CI entry point is a **cross-platform Python script**, not a vendor
 
 ```python
 #!/usr/bin/env python3
-"""Run the full validation gate: both validator families, tests, and an
-assembler smoke across all targets. The single CI entry point — any CI
-system calls exactly this. Exits non-zero on the first failing stage.
+"""Run the full validation gate: both validator families, tests, and an assembler smoke across all targets.
 
-Note: guard exit code 2 (UNVERIFIABLE) fails the gate like drift does — a
-guard that cannot load what it compares must not be treated as passing.
+This is the single CI entry point. Any vendor CI binding should call exactly this script. Exits non-zero on the first failing stage.
+
+Guard exit code 2 (UNVERIFIABLE) fails the gate like drift does — a guard that cannot load what it compares must not be treated as passing.
 """
 from __future__ import annotations
 
@@ -3351,12 +3619,10 @@ STAGES: list[tuple[str, list[str]]] = [
      [sys.executable, "guards/check-cli-references.py"]),
     ("tests",
      [sys.executable, "-m", "pytest", "tests/", "-q"]),
-    ("assembler smoke: claude-code",
-     [sys.executable, "build/assemble.py", "--target", "claude-code"]),
-    ("assembler smoke: kiro-cli",
-     [sys.executable, "build/assemble.py", "--target", "kiro-cli"]),
     ("assembler smoke: generic",
      [sys.executable, "build/assemble.py", "--target", "generic"]),
+    ("target-aware validation",
+     [sys.executable, "build/validate_targets.py"]),
 ]
 
 
@@ -3365,8 +3631,7 @@ def main() -> int:
         print(f"── {name} ──")
         result = subprocess.run(cmd, cwd=ROOT)
         if result.returncode != 0:
-            print(f"CI GATE: FAIL at stage '{name}' "
-                  f"(exit {result.returncode})")
+            print(f"CI GATE: FAIL at stage '{name}' (exit {result.returncode})")
             return 1
     print("CI GATE: PASS — all stages green")
     return 0
@@ -3375,6 +3640,11 @@ def main() -> int:
 if __name__ == "__main__":
     sys.exit(main())
 ```
+
+The three former `assembler smoke: {claude-code,kiro-cli,generic}` stages are
+now `assembler smoke: generic` plus `target-aware validation`
+(`build/validate_targets.py`), which assembles the `kiro-cli` and
+`claude-code` targets internally and asserts their output layouts (§13.6).
 
 Optional vendor binding — `.github/workflows/validate.yml` (equivalents for any other CI system are the same one command):
 

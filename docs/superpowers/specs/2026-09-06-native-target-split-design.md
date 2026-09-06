@@ -244,6 +244,7 @@ CLAUDE_MAPPINGS = (
     ".mcp.json",            # root file — overwritten
     ".claude/rules",        # dir — replaced wholesale (fully generated)
     ".claude/skills",       # dir — replaced wholesale
+    ".claude/sops",         # dir — replaced wholesale (added during implementation)
     ".claude/agents",       # dir — replaced wholesale
     ".claude/settings.json",# file — overwritten
     ".claude/hooks.json",   # file — overwritten (or removed if not generated)
@@ -320,15 +321,19 @@ repo tree — narrow entries, not all of `.claude/`:
 /.mcp.json
 /.claude/rules/
 /.claude/skills/
+/.claude/sops/
 /.claude/agents/
 /.claude/hooks.json
 /.claude/settings.json
 ```
 
+(`/.claude/sops/` was added during implementation — the design's original
+seven-entry list omitted it; it is the eighth.)
+
 Verified 2026-09-06: nothing under `.claude/` is tracked in `agent-x`
 (`git ls-files .claude/` is empty; only a runtime `scheduled_tasks.lock`
 exists on disk, already excluded via `.git/info/exclude`), and there is no
-root `CLAUDE.md` or `.mcp.json`. So all seven entries above are safe to add
+root `CLAUDE.md` or `.mcp.json`. So all eight entries above are safe to add
 and there is no committed hand-authored `.claude/settings.json` to protect.
 The surgical deploy behavior (§5) still matters for **forks and external
 workspaces**, where `.claude/` routinely holds human-authored files.

@@ -124,11 +124,14 @@ The single most likely conflict, because both sides legitimately touch the
 same small block at the top of the file:
 
 - The fork personalizes `"name"`.
-- The template adds fields (it added `"version"` in this session) or changes
-  `"description"`/`"welcomeMessage"` defaults.
+- The template adds fields (it added `"version"`, and later the
+  `"claudeSettings": { "defaultAgent": false }` block for the native
+  Claude Code target) or changes `"description"`/`"welcomeMessage"` defaults.
 
-**Resolution:** always keep the fork's `"name"`, take everything else from
-whichever side actually changed it. Concretely, a conflict looks like:
+**Resolution:** always keep the fork's `"name"` (and its own
+`"welcomeMessage"` / identity), take everything else — `"version"`,
+`"claudeSettings"`, any other new additive block — from whichever side
+actually changed it. Concretely, a conflict looks like:
 
 ```json
 {

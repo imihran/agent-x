@@ -81,6 +81,15 @@ structural change to `context/`, `skills/`, or the assembler.
 - **`docs/spec/rebuild-spec.md`** — the full architectural spec. Read the
   relevant section before making a structural change; update the matching
   code listing if you change what it documents (see gotcha below).
+- **`build/target_paths.py`** — the citation-rewrite map for the
+  `claude-code` target: turns `context/…` / `sops/…` source citations into
+  the `.claude/…` paths that target emits. Pure functions, unit-tested in
+  isolation.
+- **`build/validate_targets.py`** — output-side validation. Assembles each
+  target into a temp dir and asserts every manifest-declared capability
+  (skills, SOPs, subagents, eager context files) landed at that target's
+  expected path. `context/scripts/validate-wiring.py` checks the *source*
+  tree; this checks the *emitted* tree. See §7.
 - **`docs/sync-workflow.md`** — the fork-sync mechanics: bootstrap, the
   sync tool, the manifest conflict pattern, a worked example.
 - **`docs/progress/PROJECT_PROGRESS.md`** — the template's own running
@@ -123,11 +132,24 @@ structural change to `context/`, `skills/`, or the assembler.
 ## 6. Known gotchas (read before you rediscover them the hard way)
 
 - **Manifest-name test coupling.** Several tests assert the real repo's own
-  `agent.manifest.json` name literally (e.g. `agents/agent-x.json`,
-  `payload["agent"] == "agent-x"`). A personalized fork must update these
-  to its own name after every sync that touches those test files — see
+  `agent.manifest.json` name literally — `tests/test_deploy.py` and
+  `tests/test_kiro_agent_runner.py` (`agents/agent-x.json`,
+  `payload["agent"] == "agent-x"`), and now also `tests/test_assemble.py`
+  (the `.claude/agents/agent-x.md` / `name: agent-x` frontmatter assertion
+  for `claude --agent` discovery). A personalized fork must update these to
+  its own name after every sync that touches those test files — see
   `docs/sync-workflow.md`'s "Known follow-up" section for the exact
-  grep-and-fix procedure.
+  grep-and-fix procedure. (`tests/test_validate_targets.py` reads the name
+  dynamically from the manifest, so it needs no fork edit.)
+- **The `claude-code` deploy is *surgical*.** `build/deploy.py --target
+  claude-code` removes and rewrites only the `.claude/` subpaths it
+  generates (`rules/`, `skills/`, `sops/`, `agents/`, `settings.json`,
+  `hooks.json`) plus root `CLAUDE.md` / `.mcp.json` — it never `rmtree`s
+  `.claude/` itself, so hand-authored `settings.local.json` / `commands/`
+  survive. (The `kiro-cli` deploy still clean-slates `.kiro/` — that tree is
+  100% generated.) Personalize a fork through `agent.manifest.json` and
+  `context/`, never by hand-editing the generated `CLAUDE.md`: the next
+  `--target claude-code` deploy overwrites it.
 - **`build/assemble.py` used to leave stale files in `dist/<target>/`
   across runs** (fixed — it now `rmtree`s its own output dir first, same
   as `build/deploy.py` already did for `.kiro/`). If you ever see a
@@ -150,6 +172,11 @@ structural change to `context/`, `skills/`, or the assembler.
 "Tests pass" isn't the bar. This repo also has a wiring validator
 (`python3 context/scripts/validate-wiring.py --strict`) that's the
 authority on whether a new skill/SOP/guardrail is *reachable* — routed to,
-declared, cited by path — not just sitting on disk. `python3 build/ci.py`
-runs both the validator and the test suite together; that combined gate is
-what "done" actually means here.
+declared, cited by path — not just sitting on disk. Alongside it,
+`python3 build/validate_targets.py` assembles every build target and
+asserts each declared capability actually lands where that target expects
+it — the output-side check the source-tree validator can't do.
+`python3 build/ci.py` runs the full gate — the source wiring validator, the
+two anti-drift guards, the test suite, the generic assembler smoke, and the
+target-output validator — and that combined gate is what "done" actually
+means here.
