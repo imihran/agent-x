@@ -31,6 +31,8 @@ AGENTS = ROOT / "agents"
 
 TARGETS = ("claude-code", "kiro-cli", "generic")
 
+WRITE_VERBS = {"write", "edit", "delete", "create", "update", "patch"}
+
 
 def fail(msg: str) -> None:
     print(f"ASSEMBLE ERROR: {msg}", file=sys.stderr)
@@ -221,6 +223,49 @@ def emit_claude_agent_file(manifest: dict, prompt: str, out: Path) -> None:
     write(out / ".claude" / "agents" / f"{name}.md", frontmatter + prompt)
 
 
+def subagent_agent_files(manifest: dict) -> list[Path]:
+    files: list[Path] = []
+    for name in manifest.get("subagentNames", []):
+        p = AGENTS / f"{name}.agent.json"
+        if not p.is_file():
+            fail(f"subagentNames entry has no file: agents/{name}.agent.json")
+        files.append(p)
+    return files
+
+
+def _subagent_body(spec: dict, name: str) -> str:
+    parts: list[str] = []
+    for rel in spec.get("systemPromptIncludes", []):
+        path = ROOT / rel
+        if not path.is_file():
+            fail(f"subagent {name}: systemPromptIncludes missing on disk: {rel}")
+        parts.append(path.read_text(encoding="utf-8").strip())
+    for pattern in spec.get("contextGlobs", []):
+        for m in sorted(CONTEXT.glob(pattern)):
+            if m.is_file():
+                rel = m.relative_to(ROOT).as_posix()
+                parts.append(f"<!-- {rel} -->\n{m.read_text(encoding='utf-8').strip()}")
+    return "\n\n".join(parts)
+
+
+def emit_claude_subagent(spec: dict, out: Path) -> None:
+    """Translate agents/<name>.agent.json into a Claude Code subagent file.
+    Read-only guarantee rests on `tools:` — write verbs are dropped.
+    shellAllowedCommands has no Claude subagent-file equivalent (mapping gap)."""
+    name = spec["name"]
+    tools = [t for t in spec.get("tools", []) if str(t).lower() not in WRITE_VERBS]
+    allowed = spec.get("allowedTools")
+    if allowed:
+        narrowed = [t for t in tools if t in allowed]
+        tools = narrowed or list(allowed)
+    fm = ["---", f"name: {name}", f"description: {json.dumps(spec.get('description', ''))}"]
+    if tools:
+        fm.append(f"tools: {', '.join(tools)}")
+    fm.append("---")
+    write(out / ".claude" / "agents" / f"{name}.md",
+          "\n".join(fm) + "\n\n" + _subagent_body(spec, name) + "\n")
+
+
 def emit_claude_settings(manifest: dict, out: Path) -> None:
     """.claude/settings.json — always emitted. Declares the default agent
     only when the manifest opts in (claudeSettings.defaultAgent), so a bare
@@ -245,6 +290,8 @@ def target_claude_code(manifest: dict, out: Path) -> None:
     )
     emit_claude_agent_file(manifest, prompt, out)
     emit_claude_settings(manifest, out)
+    for p in subagent_agent_files(manifest):
+        emit_claude_subagent(json.loads(p.read_text(encoding="utf-8")), out)
     citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
 
     for d in declared_skill_dirs(manifest):

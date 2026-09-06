@@ -376,6 +376,43 @@ def test_claude_code_target_default_agent_uses_renamed_manifest_name(tmp_path):
     assert settings == {"agent": "agent-x-mish"}
 
 
+def test_claude_code_target_emits_declared_subagent_as_markdown(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    assert "\nname: readonly-investigator\n" in sub
+    assert "description:" in sub
+    # body carries the subagent's own system prompt
+    assert "readonly-investigator" in sub.lower()
+
+
+def test_claude_code_target_subagent_tools_exclude_write_verbs(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    tools_line = next(line for line in sub.splitlines() if line.startswith("tools:"))
+    for verb in ("write", "edit", "delete", "create", "update", "patch"):
+        assert verb not in tools_line
+    assert "read" in tools_line
+
+
+def test_claude_code_target_missing_subagent_agent_json_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, subagentNames=["nonexistent-subagent"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "nonexistent-subagent" in result.stderr
+
+
 # --- kiro-cli target ---
 
 
