@@ -45,6 +45,7 @@ def test_deploy_writes_workspace_kiro_matching_assembled_output(tmp_path):
     assert (deployed / "skills" / "demo-skill" / "SKILL.md").is_file()
     assert (deployed / "settings" / "mcp.json").is_file()
     assert (deployed / "agents" / "agent-x.json").is_file()
+    assert (deployed / "agents" / "readonly-investigator.json").is_file()
     assert not (deployed / "hooks").exists()
     assert same_tree(assembled, deployed)
 

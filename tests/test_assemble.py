@@ -581,6 +581,44 @@ def test_kiro_cli_target_agent_config_missing_name_is_hard_error(tmp_path):
     assert "name" in result.stderr
 
 
+def test_kiro_cli_target_emits_declared_subagent_config(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = json.loads((out_dir / "agents" / "readonly-investigator.json").read_text(encoding="utf-8"))
+    assert sub["name"] == "readonly-investigator"
+    assert sub["includeMcpJson"] is True
+    assert sub["allowedTools"] == ["read"]
+    assert sub["shellAllowedCommands"]  # preserved from the source spec
+
+
+def test_kiro_cli_target_primary_agent_config_unchanged_by_subagent_emission(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["name"] == "agent-x"
+    assert config["resources"] == [
+        "file://.kiro/steering/**/*.md",
+        "skill://.kiro/skills/*/SKILL.md",
+    ]
+
+
+def test_kiro_cli_target_missing_subagent_agent_json_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, subagentNames=["nonexistent-subagent"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "nonexistent-subagent" in result.stderr
+
+
 # --- generic target additions ---
 
 

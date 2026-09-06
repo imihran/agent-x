@@ -201,6 +201,33 @@ def emit_kiro_cli_agent(manifest: dict, agents_dir: Path) -> None:
     write(agents_dir / f"{name}.json", json.dumps(config, indent=2, sort_keys=True) + "\n")
 
 
+def emit_kiro_subagents(manifest: dict, agents_dir: Path) -> None:
+    """Declared subagents as kiro-cli agent configs, alongside the primary.
+    Built clean from the source spec (not raw pass-through) so the emitted
+    file is a valid kiro-cli agent config, mirroring emit_kiro_cli_agent."""
+    for p in subagent_agent_files(manifest):
+        spec = json.loads(p.read_text(encoding="utf-8"))
+        config = {
+            "name": spec["name"],
+            "description": spec.get("description", ""),
+            "prompt": None,
+            "mcpServers": {},
+            "tools": spec.get("tools") or ["*"],
+            "allowedTools": spec.get("allowedTools", []),
+            "resources": [
+                "file://.kiro/steering/**/*.md",
+                "skill://.kiro/skills/*/SKILL.md",
+            ],
+            "includeMcpJson": True,
+            "model": None,
+            "welcomeMessage": spec["name"],
+        }
+        if spec.get("shellAllowedCommands"):
+            config["shellAllowedCommands"] = spec["shellAllowedCommands"]
+        write(agents_dir / f"{spec['name']}.json",
+              json.dumps(config, indent=2, sort_keys=True) + "\n")
+
+
 def hook_files() -> list[Path]:
     """Real hook files only — an empty hooks/ directory produces no
     hooks.json output, and hooks/example.hook.json is an inert copy-me
@@ -321,6 +348,7 @@ def target_kiro_cli(manifest: dict, out: Path) -> None:
     copy_sops(manifest, out)
     emit_mcp(manifest, out / "settings" / "mcp.json")
     emit_kiro_cli_agent(manifest, out / "agents")
+    emit_kiro_subagents(manifest, out / "agents")
 
 
 def target_generic(manifest: dict, out: Path) -> None:
