@@ -11,6 +11,7 @@ Stdlib only.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = ROOT / "context"
+SOPS = ROOT / "sops"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import target_paths  # noqa: E402
 
@@ -120,6 +122,26 @@ def check_claude(manifest: dict, out: Path) -> None:
         if not want_default and "agent" in settings:
             fail(t, "settings", "claudeSettings.defaultAgent is false but "
                                 ".claude/settings.json declares an agent")
+
+    # Residual-citation backstop (spec §6): no emitted Claude markdown file may
+    # still carry a source citation token that has a mapping entry — those must
+    # have been rewritten to their .claude/ location. The `<!-- context/… -->`
+    # provenance comment lines are deliberately literal (§13.6) and exempt.
+    citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
+    comment_line = re.compile(r"^\s*<!--.*-->\s*$")
+    md_files = [out / "CLAUDE.md"] + sorted((out / ".claude").rglob("*.md"))
+    for md in md_files:
+        if not md.is_file():
+            continue
+        body = "\n".join(l for l in md.read_text(encoding="utf-8").splitlines()
+                         if not comment_line.match(l))
+        for token, dest in citation_map.items():
+            # a rewritten `.claude/…` path ends with the bare token — strip the
+            # emitted paths before checking so that tail is not a false hit.
+            if token in body.replace(dest, ""):
+                fail(t, "residual-citation",
+                     f"{md.relative_to(out)} still contains unrewritten "
+                     f"source citation {token!r} (should be {dest!r})")
 
 
 def main(argv: list[str] | None = None) -> int:

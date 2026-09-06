@@ -17,6 +17,25 @@ from pathlib import Path
 _RULE_TIERS = ("routing", "guardrails", "knowledge", "conventions")
 
 
+KIRO_TO_CLAUDE_TOOLS = {
+    "read": ["Read", "Glob", "Grep"],
+    "shell": ["Bash"],
+    "write": ["Write", "Edit"],
+    "edit": ["Edit"],
+}
+
+
+def claude_tool_names(kiro_tools: list[str]) -> list[str]:
+    """Map kiro-cli tool names to Claude Code tool names, de-duped, order-preserving.
+    An unmapped name passes through unchanged."""
+    out: list[str] = []
+    for t in kiro_tools:
+        for mapped in KIRO_TO_CLAUDE_TOOLS.get(str(t).lower(), [t]):
+            if mapped not in out:
+                out.append(mapped)
+    return out
+
+
 def rule_filename(context_relpath: str) -> str:
     """context-relative path -> .claude/rules/ filename.
 

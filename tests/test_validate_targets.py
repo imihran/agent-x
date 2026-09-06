@@ -137,6 +137,30 @@ def test_check_claude_flags_default_agent_setting_disagreement(tmp_path):
                for f in validate_targets.failures), validate_targets.failures
 
 
+def test_check_claude_flags_residual_source_citation_in_emitted_file(tmp_path):
+    out = _assemble("claude-code", tmp_path)
+    # reintroduce a bare source citation token into an emitted rule file
+    victim = out / ".claude" / "rules" / "guardrails-no-fabrication.md"
+    text = victim.read_text(encoding="utf-8")
+    victim.write_text(
+        text + "\nSee context/guardrails/evidence-gate.md for the gate.\n",
+        encoding="utf-8")
+
+    validate_targets.failures.clear()
+    validate_targets.check_claude(MANIFEST, out)
+
+    assert any("residual-citation" in f and "evidence-gate" in f
+               for f in validate_targets.failures), validate_targets.failures
+
+
+def test_check_claude_clean_output_has_no_residual_citation_finding(tmp_path):
+    out = _assemble("claude-code", tmp_path)
+    validate_targets.failures.clear()
+    validate_targets.check_claude(MANIFEST, out)
+    assert not any("residual-citation" in f for f in validate_targets.failures), \
+        validate_targets.failures
+
+
 def test_check_claude_passes_when_default_agent_opt_in_is_honored(tmp_path):
     out = _assemble("claude-code", tmp_path)
     (out / ".claude" / "settings.json").write_text(

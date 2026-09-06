@@ -141,15 +141,18 @@ structural change to `context/`, `skills/`, or the assembler.
   `docs/sync-workflow.md`'s "Known follow-up" section for the exact
   grep-and-fix procedure. (`tests/test_validate_targets.py` reads the name
   dynamically from the manifest, so it needs no fork edit.)
-- **The `claude-code` deploy is *surgical*.** `build/deploy.py --target
-  claude-code` removes and rewrites only the `.claude/` subpaths it
-  generates (`rules/`, `skills/`, `sops/`, `agents/`, `settings.json`,
-  `hooks.json`) plus root `CLAUDE.md` / `.mcp.json` — it never `rmtree`s
-  `.claude/` itself, so hand-authored `settings.local.json` / `commands/`
-  survive. (The `kiro-cli` deploy still clean-slates `.kiro/` — that tree is
-  100% generated.) Personalize a fork through `agent.manifest.json` and
-  `context/`, never by hand-editing the generated `CLAUDE.md`: the next
-  `--target claude-code` deploy overwrites it.
+- **The `claude-code` deploy owns a fixed set of paths *wholesale*.**
+  `build/deploy.py --target claude-code` `rmtree`s and regenerates
+  `CLAUDE.md`, `.mcp.json`, `.claude/rules/`, `.claude/skills/`,
+  `.claude/sops/`, `.claude/agents/`, `.claude/settings.json`,
+  `.claude/hooks.json` on every run — all of them gitignored. Do not
+  hand-edit those or add your own files under them: a fork's hand-written
+  `.claude/agents/my-helper.md` is lost silently on the next deploy.
+  Everything else under `.claude/` (`settings.local.json`, `commands/`, and
+  anything you add outside the owned subpaths) is left untouched. (The
+  `kiro-cli` deploy still clean-slates `.kiro/` — that tree is 100%
+  generated.) Personalize a fork through `agent.manifest.json` and
+  `context/`, never by hand-editing the generated files.
 - **`build/assemble.py` used to leave stale files in `dist/<target>/`
   across runs** (fixed — it now `rmtree`s its own output dir first, same
   as `build/deploy.py` already did for `.kiro/`). If you ever see a

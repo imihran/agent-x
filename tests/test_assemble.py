@@ -385,8 +385,10 @@ def test_claude_code_target_emits_declared_subagent_as_markdown(tmp_path):
     sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
     assert "\nname: readonly-investigator\n" in sub
     assert "description:" in sub
-    # body carries the subagent's own system prompt
-    assert "readonly-investigator" in sub.lower()
+    # body carries the subagent's own system prompt — assert a distinctive
+    # phrase from context/prompts/readonly-investigator.md so this verifies
+    # _subagent_body actually resolved systemPromptIncludes (not just frontmatter)
+    assert "try to DISPROVE it — at most 3 disproof attempts" in sub
 
 
 def test_claude_code_target_subagent_tools_exclude_write_verbs(tmp_path):
@@ -398,8 +400,127 @@ def test_claude_code_target_subagent_tools_exclude_write_verbs(tmp_path):
     sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
     tools_line = next(line for line in sub.splitlines() if line.startswith("tools:"))
     for verb in ("write", "edit", "delete", "create", "update", "patch"):
-        assert verb not in tools_line
-    assert "read" in tools_line
+        assert verb not in tools_line.lower()
+    # kiro `read` is mapped to Claude's vocabulary (FIX 3)
+    assert "Read" in tools_line
+
+
+def test_claude_code_target_subagent_tools_are_claude_tool_names(tmp_path):
+    """The shipped readonly-investigator has allowedTools:["read"] — under
+    Claude that must emit the mapped Claude tool names, not the kiro word."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    tools_line = next(line for line in sub.splitlines() if line.startswith("tools:"))
+    assert tools_line == "tools: Read, Glob, Grep"
+
+
+def test_claude_code_target_subagent_allowedtools_write_verb_is_filtered_not_readmitted(tmp_path):
+    """A subagent whose tools ∩ allowedTools is empty must NOT fall back to
+    allowedTools verbatim (the old bug) — write verbs in allowedTools are
+    still dropped. Here the filtered set is empty, so no tools: line at all."""
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "gap-probe.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "gap-probe",
+        "description": "probe",
+        "systemPromptIncludes": [],
+        "tools": ["read"],
+        "allowedTools": ["write", "edit"],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["gap-probe"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "gap-probe.md").read_text(encoding="utf-8")
+    tools_lines = [l for l in sub.splitlines() if l.startswith("tools:")]
+    assert tools_lines == []
+
+
+def test_claude_code_target_subagent_allowedtools_partial_write_verbs_dropped(tmp_path):
+    """allowedTools mixing a keeper and a write verb: only the write verb is
+    dropped; the keeper is mapped to Claude names. No unfiltered fallback."""
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "gap-probe2.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "gap-probe2",
+        "description": "probe",
+        "systemPromptIncludes": [],
+        "tools": ["shell"],
+        "allowedTools": ["read", "write"],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["gap-probe2"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "gap-probe2.md").read_text(encoding="utf-8")
+    tools_line = next(l for l in sub.splitlines() if l.startswith("tools:"))
+    assert tools_line == "tools: Read, Glob, Grep"
+
+
+def test_claude_code_target_subagent_empty_allowedtools_emits_no_tools_line(tmp_path):
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "no-allow.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "no-allow",
+        "description": "x",
+        "systemPromptIncludes": [],
+        "tools": ["read", "shell"],
+        "allowedTools": [],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["no-allow"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "no-allow.md").read_text(encoding="utf-8")
+    assert [l for l in sub.splitlines() if l.startswith("tools:")] == []
+
+
+def test_claude_code_target_rewrites_citations_in_claude_md_and_agent_file(tmp_path):
+    """CLAUDE.md and the primary agent body carry the assembled prompt, whose
+    identity partial cites context/guardrails/* and context/routing/00-core.md.
+    Those must be rewritten to their emitted .claude/rules/ paths (FIX 2)."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    agent_md = (out_dir / ".claude" / "agents" / "agent-x.md").read_text(encoding="utf-8")
+    for text in (claude_md, agent_md):
+        assert ".claude/rules/guardrails-no-fabrication.md" in text
+        assert ".claude/rules/routing-00-core.md" in text
+        # the bare source token only survives as the tail of the rewritten path
+        assert "context/guardrails/no-fabrication.md" not in text
+        assert "context/routing/00-core.md" not in text
+
+
+def test_claude_code_target_rule_body_citations_rewritten_but_provenance_comment_literal(tmp_path):
+    """emit_claude_rules rewrites the rule BODY through the citation map, but
+    keeps the leading `<!-- context/<rel> -->` provenance comment literal."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    nofab = (out_dir / ".claude" / "rules" / "guardrails-no-fabrication.md").read_text(encoding="utf-8")
+    # provenance comment: exact source form
+    assert nofab.splitlines()[0] == "<!-- context/guardrails/no-fabrication.md -->"
+    # body cross-references rewritten
+    assert ".claude/rules/routing-00-core.md" in nofab
+    assert ".claude/rules/knowledge-domain-glossary.md" in nofab
 
 
 def test_claude_code_target_missing_subagent_agent_json_is_hard_error(tmp_path):

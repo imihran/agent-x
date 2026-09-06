@@ -254,13 +254,15 @@ Claude Code load Agent X in this workspace:
     python3 build/deploy.py --target claude-code
     claude --agent agent-x
 
-The Claude deploy is *surgical*: it removes and rewrites only the paths it
-generates (`CLAUDE.md`, `.mcp.json`, `.claude/rules/`, `.claude/skills/`,
-`.claude/sops/`, `.claude/agents/`, `.claude/settings.json`,
-`.claude/hooks.json`) and never deletes `.claude/` itself, so hand-authored
-files there (`settings.local.json`, `commands/`) survive. Personalize a fork
-through `agent.manifest.json` and `context/`, not by hand-editing the
-generated `CLAUDE.md` — the next deploy overwrites it.
+The Claude deploy is *scoped*: it owns a fixed set of paths **wholesale** —
+`CLAUDE.md`, `.mcp.json`, `.claude/rules/`, `.claude/skills/`, `.claude/sops/`,
+`.claude/agents/`, `.claude/settings.json`, `.claude/hooks.json`. Every deploy
+`rmtree`s and regenerates those, and they are gitignored — do not hand-edit
+them or drop your own files inside them (a hand-written
+`.claude/agents/my-helper.md` is silently lost on the next deploy). Everything
+else under `.claude/` (`settings.local.json`, `commands/`, anything you add
+outside the owned subpaths) is left untouched. Personalize a fork through
+`agent.manifest.json` and `context/`, not by hand-editing the generated files.
 
 Where each target expects what:
 

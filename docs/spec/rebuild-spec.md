@@ -1768,13 +1768,13 @@ One neutral source tree, per-host artifacts. `build/assemble.py` compiles the pa
 
 | Concept | `claude-code` target | `kiro-cli` target | `generic` target |
 |---|---|---|---|
-| System prompt | `dist/claude-code/CLAUDE.md` — thin: assembled prompt + `\n---\n` + one `@.claude/rules/<file>` import line per eager tier file, sorted | `dist/kiro-cli/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
+| System prompt | `dist/claude-code/CLAUDE.md` — thin: assembled prompt, then a `---` divider, then one `@.claude/rules/<file>` import line per eager tier file, sorted (exact byte form in §13.6) | `dist/kiro-cli/steering/00-system.md` (always-included steering) + one steering file per eager tier file | `dist/generic/system-prompt.txt` (everything concatenated) |
 | Eager context | `dist/claude-code/.claude/rules/<tier>-<file>.md` — one file per eager context file, keeping the `<!-- context/<relpath> -->` provenance comment; loaded ONLY via the `@`-imports in `CLAUDE.md` | `dist/kiro-cli/steering/<tier>-<file>.md` | inline in `system-prompt.txt` |
 | Skills | `dist/claude-code/.claude/skills/<name>/` (bundled `*.md` have their `context/…` and `sops/…` citations rewritten to the emitted `.claude/…` paths) | `dist/kiro-cli/skills/<name>/` | `dist/generic/skills-catalog.md` (frontmatter index for prompt injection) + copied dirs |
 | SOPs | `dist/claude-code/.claude/sops/<name>.sop.md` (citations rewritten) | `dist/kiro-cli/sops/<name>.sop.md` | `dist/generic/sops/<name>.sop.md` |
 | MCP servers | `dist/claude-code/.mcp.json` | `dist/kiro-cli/settings/mcp.json` | `dist/generic/mcp.json` |
 | Agent activation | `dist/claude-code/.claude/agents/<manifest.name>.md` — frontmatter `name:` + json-quoted `description:`, body = assembled prompt; Claude Code discovers it by scanning `.claude/agents/*.md` and matching frontmatter `name`, so `claude --agent <name>` resolves here | `dist/kiro-cli/agents/<name>.json` — `resources` field points at the steering/skills paths above; kiro-cli's own `--agent <name>` flag activates it | n/a |
-| Subagents | `dist/claude-code/.claude/agents/<sub>.md` — one per `subagentNames`; frontmatter `tools:` narrowed to non-write ∩ `allowedTools`; body = resolved subagent prompt + inlined `contextGlobs` | `dist/kiro-cli/agents/<sub>.json` — one per `subagentNames`, built clean like the primary; `shellAllowedCommands` kept if present | n/a |
+| Subagents | `dist/claude-code/.claude/agents/<sub>.md` — one per `subagentNames`; frontmatter `tools:` = `allowedTools` minus write verbs, mapped to Claude tool names (`claude_tool_names`), no `tools:` line when that set is empty; body = resolved subagent prompt + inlined `contextGlobs`, citations rewritten | `dist/kiro-cli/agents/<sub>.json` — one per `subagentNames`, built clean like the primary; `shellAllowedCommands` kept if present | n/a |
 | Hooks | `dist/claude-code/.claude/hooks.json` (aggregated neutral list — no matcher/event translation, so it will NOT auto-run; §13.7 gap 2). Only emitted when real hook files exist | omitted by choice — the assembler does not translate hooks for this target (kiro-cli *does* run agent-config hooks; §13.5) | omitted (no hook runtime assumed) |
 | Settings | `dist/claude-code/.claude/settings.json` — always emitted; `{"agent": "<name>"}` iff `manifest.claudeSettings.defaultAgent` is true, else `{}` | n/a (agent config carries everything) | n/a |
 | Wiring proof | the validator runs on the SOURCE tree — identical for all targets; `build/validate_targets.py` additionally asserts the emitted output layout per target | same | same |
@@ -1904,15 +1904,20 @@ def eager_block(files: list[Path]) -> str:
     return "\n\n".join(parts) + ("\n" if parts else "")
 
 
-def emit_claude_rules(manifest: dict, out: Path) -> list[str]:
+def emit_claude_rules(manifest: dict, out: Path,
+                      citation_map: dict[str, str]) -> list[str]:
     """Write each eager-tier context file as its own .claude/rules/ file,
-    keeping the `<!-- context/<path> -->` provenance comment. Returns the
-    emitted filenames, sorted — that IS the CLAUDE.md import order."""
+    keeping the `<!-- context/<path> -->` provenance comment. The file BODY
+    has its source citations rewritten to the emitted .claude/ locations; the
+    provenance comment line is left literal (§13.6 promises that exact form).
+    Returns the emitted filenames, sorted — that IS the CLAUDE.md import order."""
     names: list[str] = []
     for f in expand_context_globs(manifest):
         rel = f.relative_to(CONTEXT).as_posix()
         fname = target_paths.rule_filename(rel)
-        body = f"<!-- context/{rel} -->\n{f.read_text(encoding='utf-8').strip()}\n"
+        text = target_paths.rewrite_citations(
+            f.read_text(encoding="utf-8").strip(), citation_map)
+        body = f"<!-- context/{rel} -->\n{text}\n"
         write(out / ".claude" / "rules" / fname, body)
         names.append(fname)
     return sorted(names)
@@ -2071,37 +2076,44 @@ def subagent_agent_files(manifest: dict) -> list[Path]:
     return files
 
 
-def _subagent_body(spec: dict, name: str) -> str:
+def _subagent_body(spec: dict, name: str,
+                   citation_map: dict[str, str] | None = None) -> str:
+    citation_map = citation_map or {}
     parts: list[str] = []
     for rel in spec.get("systemPromptIncludes", []):
         path = ROOT / rel
         if not path.is_file():
             fail(f"subagent {name}: systemPromptIncludes missing on disk: {rel}")
-        parts.append(path.read_text(encoding="utf-8").strip())
+        parts.append(target_paths.rewrite_citations(
+            path.read_text(encoding="utf-8").strip(), citation_map))
     for pattern in spec.get("contextGlobs", []):
         for m in sorted(CONTEXT.glob(pattern)):
             if m.is_file():
                 rel = m.relative_to(ROOT).as_posix()
-                parts.append(f"<!-- {rel} -->\n{m.read_text(encoding='utf-8').strip()}")
+                prose = target_paths.rewrite_citations(
+                    m.read_text(encoding="utf-8").strip(), citation_map)
+                parts.append(f"<!-- {rel} -->\n{prose}")
     return "\n\n".join(parts)
 
 
-def emit_claude_subagent(spec: dict, out: Path) -> None:
+def emit_claude_subagent(spec: dict, out: Path,
+                         citation_map: dict[str, str] | None = None) -> None:
     """Translate agents/<name>.agent.json into a Claude Code subagent file.
-    Read-only guarantee rests on `tools:` — write verbs are dropped.
+    Read-only guarantee rests on the emitted `tools:` line being
+    `allowedTools` minus write verbs, mapped to Claude tool names.
     shellAllowedCommands has no Claude subagent-file equivalent (mapping gap)."""
     name = spec["name"]
     tools = [t for t in spec.get("tools", []) if str(t).lower() not in WRITE_VERBS]
     allowed = spec.get("allowedTools")
-    if allowed:
-        narrowed = [t for t in tools if t in allowed]
-        tools = narrowed or list(allowed)
+    if allowed is not None:
+        tools = [t for t in allowed if str(t).lower() not in WRITE_VERBS]
+    tools = target_paths.claude_tool_names(tools)
     fm = ["---", f"name: {name}", f"description: {json.dumps(spec.get('description', ''))}"]
     if tools:
         fm.append(f"tools: {', '.join(tools)}")
     fm.append("---")
     write(out / ".claude" / "agents" / f"{name}.md",
-          "\n".join(fm) + "\n\n" + _subagent_body(spec, name) + "\n")
+          "\n".join(fm) + "\n\n" + _subagent_body(spec, name, citation_map) + "\n")
 
 
 def emit_claude_settings(manifest: dict, out: Path) -> None:
@@ -2116,8 +2128,13 @@ def emit_claude_settings(manifest: dict, out: Path) -> None:
 
 
 def target_claude_code(manifest: dict, out: Path) -> None:
-    prompt = resolve_includes(manifest)
-    rule_names = emit_claude_rules(manifest, out)
+    # Build the citation map FIRST — every Claude output class (CLAUDE.md, the
+    # primary agent file, rule bodies, subagent bodies, skills, SOPs) is
+    # rewritten through it, so a source `context/…` / `sops/…` citation never
+    # lands dangling in the deployed tree (§13.6).
+    citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
+    prompt = target_paths.rewrite_citations(resolve_includes(manifest), citation_map)
+    rule_names = emit_claude_rules(manifest, out, citation_map)
     imports = "".join(f"@.claude/rules/{n}\n" for n in rule_names)
     write(
         out / "CLAUDE.md",
@@ -2129,8 +2146,7 @@ def target_claude_code(manifest: dict, out: Path) -> None:
     emit_claude_agent_file(manifest, prompt, out)
     emit_claude_settings(manifest, out)
     for p in subagent_agent_files(manifest):
-        emit_claude_subagent(json.loads(p.read_text(encoding="utf-8")), out)
-    citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
+        emit_claude_subagent(json.loads(p.read_text(encoding="utf-8")), out, citation_map)
 
     for d in declared_skill_dirs(manifest):
         dst = out / ".claude" / "skills" / d.name
@@ -2445,11 +2461,11 @@ CLAUDE.md                          # thin: assembled prompt + @-imports
 .claude/
   settings.json                    # {"agent": "<name>"} iff claudeSettings.defaultAgent, else {}
   hooks.json                       # neutral aggregated list — only if real hook files exist
-  rules/<tier>-<file>.md           # one per eager context file, with <!-- context/<relpath> --> comment
+  rules/<tier>-<file>.md           # one per eager context file; <!-- context/<relpath> --> comment literal, body citations rewritten
   skills/<name>/…                  # copied; bundled *.md have citations rewritten
   sops/<name>.sop.md               # copied; citations rewritten
-  agents/<manifest.name>.md        # the primary agent — frontmatter name: + description:, body = prompt
-  agents/<subagent>.md             # one per subagentNames; tools: narrowed to non-write ∩ allowedTools
+  agents/<manifest.name>.md        # the primary agent — frontmatter name: + description:, body = prompt (citations rewritten)
+  agents/<subagent>.md             # one per subagentNames; tools: = allowedTools minus write verbs, mapped to Claude tool names; body citations rewritten
 ```
 
 **The `@`-import mechanism.** Claude Code has **no `.claude/rules/` auto-load**
@@ -2465,11 +2481,16 @@ sorted `@.claude/rules/<name>\n` import block (one line per emitted rule
 file). Guardrail and routing bodies are **not** inlined into `CLAUDE.md`;
 they live in their own rule files.
 
-**The citation-rewrite map (`build/target_paths.py`).** Skill and SOP bodies
-in the source tree cite context files and SOPs by repo-relative path
-(`context/guardrails/x.md`, `sops/y.sop.md`). The `claude-code` target emits
-those under `.claude/`, so `build/target_paths.py` owns the map that rewrites
-each citation token to its emitted location:
+**The citation-rewrite map (`build/target_paths.py`).** Skill/SOP bodies,
+rule bodies, the assembled prompt in `CLAUDE.md`, the primary agent file's
+body, and subagent bodies all cite context files and SOPs by repo-relative
+path (`context/guardrails/x.md`, `sops/y.sop.md`) in the source tree. The
+`claude-code` target emits those under `.claude/`, so `target_claude_code`
+builds the citation map **first** and rewrites every Claude output class
+through it — a source citation never lands dangling in the deployed tree.
+The `<!-- context/<relpath> -->` provenance comment on a rule file and the
+`<!-- <relpath> -->` comments in a subagent body are the one exception: they
+stay literal. `build/target_paths.py` owns the map:
 
 | Source token | Emitted Claude path |
 |---|---|
@@ -2501,8 +2522,12 @@ the agent.
 asserts every manifest-declared capability (skills, SOPs, subagents, eager
 context files) lands at that target's expected path — the output-side
 counterpart to `context/scripts/validate-wiring.py`, which checks the source
-tree only. Direct run prints `TARGET VALIDATION: PASS`; it replaces the old
-per-target `assembler smoke` stages in `build/ci.py` (§17.4).
+tree only. `check_claude` additionally runs a residual-citation backstop
+(§6): no emitted Claude markdown file (`CLAUDE.md` or `.claude/**/*.md`) may
+still carry a source citation token that has a `build_citation_map` entry —
+those must have been rewritten (the literal `<!-- … -->` provenance comment
+lines are exempt). Direct run prints `TARGET VALIDATION: PASS`; it replaces
+the old per-target `assembler smoke` stages in `build/ci.py` (§17.4).
 
 ### 13.7 Mapping gaps
 
@@ -2511,10 +2536,13 @@ representation, recorded so a future pass can close them:
 
 1. **`shellAllowedCommands`** — the `readonly-investigator` subagent's shell
    allowlist has no representation in a Claude `.claude/agents/*.md` file.
-   Claude's read-only guarantee for that subagent rests entirely on `tools:`
-   excluding write verbs. Kiro keeps the full allowlist. A user who needs a
-   shell-command allowlist under Claude must add it via `.claude/settings.json`
-   `permissions` by hand.
+   Claude's read-only guarantee for that subagent rests on the emitted
+   `tools:` line being `allowedTools` minus write verbs, mapped to Claude tool
+   names (`allowedTools: ["read"]` → `tools: Read, Glob, Grep`) — there is no
+   unfiltered fallback, and `allowedTools: []` emits no `tools:` line at all.
+   Kiro keeps the full shell allowlist. A user who needs a shell-command
+   allowlist under Claude must add it via `.claude/settings.json` `permissions`
+   by hand.
 2. **Hooks schema** — Claude Code's native hooks are matcher/event objects in
    `.claude/settings.json`. The repo's `hooks/*.hook.json` are authored in a
    host-neutral shape (`name`, `when.type`, `then.type`) that maps onto
@@ -2523,9 +2551,27 @@ representation, recorded so a future pass can close them:
    it into Claude's matcher/event schema — so it will not auto-run under
    Claude Code. Follow-up: a real translator, or a decision to author Claude
    hooks separately.
-3. **`tool/toolkit/`** — cited by `demo-skill`, emitted into no target. Works
-   in dev only because the workspace root is the repo. Not addressed here.
-4. **`welcomeMessage`** — a `kiro-cli` agent-config field with no
+3. **Source paths cited by skills/SOPs that are outside the emitted set** —
+   `build_citation_map` only rewrites tokens whose destination is genuinely
+   emitted under `.claude/` (the eager context tiers and declared SOPs).
+   Everything else a skill or SOP cites by repo-relative path is left verbatim
+   and dangles in a deployed workspace that is not the repo root:
+   - `tool/toolkit/toolkit.py` — cited by `demo-skill`; the tool layer is
+     emitted into no target (works in dev only because the workspace root is
+     the repo).
+   - `context/scripts/validate-wiring.py`, `context/prompt/00-identity.md`,
+     `docs/spec/rebuild-spec.md` — all cited from `.claude/sops/*.sop.md`;
+     none is emitted anywhere in the Claude tree, so none can be rewritten.
+4. **Kiro→Claude tool-name translation is best-effort.** `claude_tool_names`
+   (`build/target_paths.py`) maps the common kiro tool names — `read` →
+   `Read, Glob, Grep`, `shell` → `Bash`, `write` → `Write, Edit`, `edit` →
+   `Edit`. An unmapped kiro tool name passes through unchanged and may not
+   match Claude Code's tool vocabulary (so it would scope nothing). Related:
+   `WRITE_VERBS` is the kiro lowercase vocabulary (`write`, `edit`, `delete`,
+   `create`, `update`, `patch`), so a Claude-cased or otherwise non-kiro
+   custom write-capable tool name in `allowedTools` could slip the write-verb
+   filter.
+5. **`welcomeMessage`** — a `kiro-cli` agent-config field with no
    `.claude/agents/*.md` equivalent. Dropped for the Claude target.
 
 ---

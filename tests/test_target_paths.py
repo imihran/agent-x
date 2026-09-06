@@ -12,6 +12,25 @@ def test_rule_filename_joins_parts_with_hyphen():
     assert target_paths.rule_filename("routing/00-core.md") == "routing-00-core.md"
 
 
+def test_claude_tool_names_maps_common_kiro_names():
+    assert target_paths.claude_tool_names(["read"]) == ["Read", "Glob", "Grep"]
+    assert target_paths.claude_tool_names(["shell"]) == ["Bash"]
+    assert target_paths.claude_tool_names(["write"]) == ["Write", "Edit"]
+    assert target_paths.claude_tool_names(["edit"]) == ["Edit"]
+
+
+def test_claude_tool_names_dedupes_and_preserves_order():
+    assert target_paths.claude_tool_names(["read", "shell", "edit", "write"]) == [
+        "Read", "Glob", "Grep", "Bash", "Edit", "Write",
+    ]
+
+
+def test_claude_tool_names_passes_unmapped_name_through_unchanged():
+    assert target_paths.claude_tool_names(["read", "CustomTool"]) == [
+        "Read", "Glob", "Grep", "CustomTool",
+    ]
+
+
 def test_build_citation_map_covers_context_tiers_and_sops(tmp_path):
     ctx = tmp_path / "context"
     (ctx / "guardrails").mkdir(parents=True)

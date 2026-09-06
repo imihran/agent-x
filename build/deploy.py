@@ -149,25 +149,25 @@ def deploy(agent_root: Path, workspace_root: Path, clean: bool = True,
         return deploy_claude(agent_root, workspace_root)
 
     source_out = agent_root / "dist" / "kiro-cli"
-    target = workspace_root / ".kiro"
+    kiro_dir = workspace_root / ".kiro"
 
     assemble(agent_root, source_out)
 
-    if clean and target.exists():
-        shutil.rmtree(target)
-    target.mkdir(parents=True, exist_ok=True)
+    if clean and kiro_dir.exists():
+        shutil.rmtree(kiro_dir)
+    kiro_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
     for name in MAPPINGS:
-        written += copy_path(source_out / name, target / name)
+        written += copy_path(source_out / name, kiro_dir / name)
 
-    assert_same_tree(source_out, target)
+    assert_same_tree(source_out, kiro_dir)
     return {
         "target": "kiro-cli",
         "agent": agent_name(agent_root),
         "agent_root": str(agent_root),
         "assembled_from": str(source_out),
-        "deployed_to": str(target),
+        "deployed_to": str(kiro_dir),
         "files_written": written,
     }
 
