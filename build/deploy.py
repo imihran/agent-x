@@ -20,6 +20,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAPPINGS = ("steering", "skills", "sops", "settings/mcp.json", "agents")
+CLAUDE_MAPPINGS = (
+    "CLAUDE.md",
+    ".mcp.json",
+    ".claude/rules",
+    ".claude/skills",
+    ".claude/sops",
+    ".claude/agents",
+    ".claude/settings.json",
+    ".claude/hooks.json",
+)
 
 
 def fail(message: str) -> None:
@@ -61,12 +71,12 @@ def agent_name(agent_root: Path) -> str:
     return str(name)
 
 
-def assemble(agent_root: Path, out: Path) -> None:
+def assemble(agent_root: Path, out: Path, target: str = "kiro-cli") -> None:
     assembler = agent_root / "build" / "assemble.py"
     if not assembler.is_file():
         fail(f"agent has no build/assemble.py: {agent_root}")
     result = subprocess.run(
-        [sys.executable, str(assembler), "--target", "kiro-cli", "--out", str(out)],
+        [sys.executable, str(assembler), "--target", target, "--out", str(out)],
         cwd=agent_root,
         capture_output=True,
         text=True,
@@ -99,12 +109,45 @@ def assert_same_tree(src: Path, dst: Path) -> None:
     comparison = filecmp.dircmp(src, dst)
     problems = comparison.left_only + comparison.right_only + comparison.diff_files + comparison.funny_files
     if problems:
-        fail(f"deployed .kiro/ does not match assembled output: {problems}")
+        fail(f"deployed tree does not match assembled output: {problems}")
     for name in comparison.common_dirs:
         assert_same_tree(src / name, dst / name)
 
 
-def deploy(agent_root: Path, workspace_root: Path, clean: bool = True) -> dict:
+def deploy_claude(agent_root: Path, workspace_root: Path) -> dict:
+    source_out = agent_root / "dist" / "claude-code"
+    assemble(agent_root, source_out, target="claude-code")
+
+    written = 0
+    for name in CLAUDE_MAPPINGS:
+        src = source_out / name
+        dst = workspace_root / name
+        # surgical: only remove the paths we own; never rmtree .claude/ itself
+        if dst.exists():
+            if dst.is_dir():
+                shutil.rmtree(dst)
+            else:
+                dst.unlink()
+        written += copy_path(src, dst)
+        if src.is_dir():
+            assert_same_tree(src, dst)
+
+    return {
+        "target": "claude-code",
+        "agent": agent_name(agent_root),
+        "agent_root": str(agent_root),
+        "assembled_from": str(source_out),
+        "deployed_to": str(workspace_root),
+        "files_written": written,
+    }
+
+
+def deploy(agent_root: Path, workspace_root: Path, clean: bool = True,
+           target: str = "kiro-cli") -> dict:
+    if target == "claude-code":
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        return deploy_claude(agent_root, workspace_root)
+
     source_out = agent_root / "dist" / "kiro-cli"
     target = workspace_root / ".kiro"
 
@@ -120,6 +163,7 @@ def deploy(agent_root: Path, workspace_root: Path, clean: bool = True) -> dict:
 
     assert_same_tree(source_out, target)
     return {
+        "target": "kiro-cli",
         "agent": agent_name(agent_root),
         "agent_root": str(agent_root),
         "assembled_from": str(source_out),
@@ -133,18 +177,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent", default=str(ROOT), help="Agent source path or alias from agents/registry.local.json.")
     parser.add_argument("--workspace-root", default=str(ROOT), help="Workspace root where kiro-cli should load `.kiro/`.")
     parser.add_argument("--no-clean", action="store_true", help="Do not remove existing .kiro before copying.")
+    parser.add_argument("--target", default="kiro-cli", choices=("kiro-cli", "claude-code"),
+                        help="Which assembled layout to deploy.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     args = parser.parse_args(argv)
 
     agent_root = resolve_agent(args.agent)
     workspace_root = Path(args.workspace_root).expanduser().resolve()
     workspace_root.mkdir(parents=True, exist_ok=True)
-    summary = deploy(agent_root, workspace_root, clean=not args.no_clean)
+    summary = deploy(agent_root, workspace_root, clean=not args.no_clean, target=args.target)
 
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
-        print(f"deployed {summary['agent']} to {summary['deployed_to']}")
+        print(f"deployed {summary['agent']} ({summary['target']}) to {summary['deployed_to']}")
         print(f"source: {summary['assembled_from']}")
         print(f"files_written: {summary['files_written']}")
     return 0

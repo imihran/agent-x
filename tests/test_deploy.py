@@ -74,6 +74,46 @@ def test_deploy_can_target_different_workspace_root(tmp_path):
     assert (workspace / ".kiro" / "steering" / "00-system.md").is_file()
 
 
+def test_deploy_claude_target_writes_native_layout(tmp_path):
+    pkg = copy_package(tmp_path)
+    workspace = tmp_path / "ws"
+
+    result = run_deploy(pkg, "--target", "claude-code", "--workspace-root", str(workspace), "--json")
+
+    assert result.returncode == 0, result.stderr
+    assert (workspace / "CLAUDE.md").is_file()
+    assert (workspace / ".mcp.json").is_file()
+    assert (workspace / ".claude" / "rules" / "routing-00-core.md").is_file()
+    assert (workspace / ".claude" / "skills" / "demo-skill" / "SKILL.md").is_file()
+    assert (workspace / ".claude" / "sops" / "wire-new-capability.sop.md").is_file()
+    assert (workspace / ".claude" / "agents" / "agent-x.md").is_file()
+    assert (workspace / ".claude" / "settings.json").is_file()
+    assert (workspace / ".claude" / "hooks.json").is_file()
+    assert json.loads(result.stdout)["target"] == "claude-code"
+
+
+def test_deploy_claude_target_is_surgical_and_preserves_human_files(tmp_path):
+    pkg = copy_package(tmp_path)
+    workspace = tmp_path / "ws"
+    (workspace / ".claude" / "commands").mkdir(parents=True)
+    (workspace / ".claude" / "commands" / "mine.md").write_text("keep me", encoding="utf-8")
+    (workspace / ".claude" / "settings.local.json").write_text('{"local": true}', encoding="utf-8")
+
+    result = run_deploy(pkg, "--target", "claude-code", "--workspace-root", str(workspace), "--json")
+
+    assert result.returncode == 0, result.stderr
+    assert (workspace / ".claude" / "commands" / "mine.md").read_text(encoding="utf-8") == "keep me"
+    assert (workspace / ".claude" / "settings.local.json").read_text(encoding="utf-8") == '{"local": true}'
+
+
+def test_deploy_default_target_is_still_kiro_cli(tmp_path):
+    pkg = copy_package(tmp_path)
+    result = run_deploy(pkg, "--json")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["target"] == "kiro-cli"
+    assert (pkg / ".kiro" / "steering" / "00-system.md").is_file()
+
+
 def test_registry_example_documents_alias_shape():
     data = json.loads((ROOT / "agents" / "registry.local.json.example").read_text(encoding="utf-8"))
 
