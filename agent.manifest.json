@@ -30,5 +30,8 @@
   "allowedTools": [],
   "shellAllowedCommands": [],
   "hooks": {},
+  "claudeSettings": {
+    "defaultAgent": false
+  },
   "welcomeMessage": "Agent X — ready to help."
 }

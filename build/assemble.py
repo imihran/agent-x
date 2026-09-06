@@ -221,6 +221,17 @@ def emit_claude_agent_file(manifest: dict, prompt: str, out: Path) -> None:
     write(out / ".claude" / "agents" / f"{name}.md", frontmatter + prompt)
 
 
+def emit_claude_settings(manifest: dict, out: Path) -> None:
+    """.claude/settings.json — always emitted. Declares the default agent
+    only when the manifest opts in (claudeSettings.defaultAgent), so a bare
+    `claude` picks up Agent X; otherwise `claude --agent <name>` is explicit."""
+    settings: dict = {}
+    if manifest.get("claudeSettings", {}).get("defaultAgent"):
+        settings["agent"] = manifest["name"]
+    write(out / ".claude" / "settings.json",
+          json.dumps(settings, indent=2, sort_keys=True) + "\n")
+
+
 def target_claude_code(manifest: dict, out: Path) -> None:
     prompt = resolve_includes(manifest)
     rule_names = emit_claude_rules(manifest, out)
@@ -233,6 +244,7 @@ def target_claude_code(manifest: dict, out: Path) -> None:
         + imports,
     )
     emit_claude_agent_file(manifest, prompt, out)
+    emit_claude_settings(manifest, out)
     citation_map = target_paths.build_citation_map(CONTEXT, SOPS)
 
     for d in declared_skill_dirs(manifest):

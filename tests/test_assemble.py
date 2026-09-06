@@ -342,6 +342,40 @@ def test_claude_code_target_missing_name_is_hard_error(tmp_path):
     assert "name" in result.stderr
 
 
+def test_claude_code_target_settings_json_is_empty_by_default(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {}
+
+
+def test_claude_code_target_settings_json_sets_default_agent_when_manifest_opts_in(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, claudeSettings={"defaultAgent": True})
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {"agent": "agent-x"}
+
+
+def test_claude_code_target_default_agent_uses_renamed_manifest_name(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, name="agent-x-mish", claudeSettings={"defaultAgent": True})
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {"agent": "agent-x-mish"}
+
+
 # --- kiro-cli target ---
 
 
