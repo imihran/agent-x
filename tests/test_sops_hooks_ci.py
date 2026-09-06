@@ -103,8 +103,8 @@ def test_ci_entrypoint_lists_all_gate_stages():
         "guards/check-cli-references.py",
         "pytest",
         "build/assemble.py",
-        "claude-code",
-        "kiro-cli",
         "generic",
+        "build/validate_targets.py",
+        "target-aware validation",
     ]:
         assert expected in text

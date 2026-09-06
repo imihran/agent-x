@@ -22,12 +22,10 @@ STAGES: list[tuple[str, list[str]]] = [
      [sys.executable, "guards/check-cli-references.py"]),
     ("tests",
      [sys.executable, "-m", "pytest", "tests/", "-q"]),
-    ("assembler smoke: claude-code",
-     [sys.executable, "build/assemble.py", "--target", "claude-code"]),
-    ("assembler smoke: kiro-cli",
-     [sys.executable, "build/assemble.py", "--target", "kiro-cli"]),
     ("assembler smoke: generic",
      [sys.executable, "build/assemble.py", "--target", "generic"]),
+    ("target-aware validation",
+     [sys.executable, "build/validate_targets.py"]),
 ]
 
 
