@@ -28,6 +28,8 @@ The full rebuild specification is preserved at:
     ├── wiring.config.json
     ├── build/
     │   ├── assemble.py
+    │   ├── target_paths.py
+    │   ├── validate_targets.py
     │   ├── ci.py
     │   ├── deploy.py
     │   └── kiro_agent.py
@@ -108,6 +110,10 @@ flowchart LR
     D2 --> DP["build/deploy.py"]
     DP --> K[".kiro/ in workspace root"]
     K --> KC["kiro-cli chat --agent agent-x"]
+
+    D1 --> DPC["build/deploy.py --target claude-code"]
+    DPC --> CC[".claude/ + CLAUDE.md in workspace root"]
+    CC --> CL["claude --agent agent-x"]
 ```
 
 One manifest, three independent targets — the same skills and guardrails reach the Kiro CLI, Claude Code, or any other host, each in the file layout that host expects, with no per-host copy-paste to keep in sync.
@@ -198,6 +204,11 @@ Run the source-tree validation gate:
     python3 guards/check-cli-references.py
     python3 -m pytest tests/ -q
 
+Check that each build target still emits every declared capability at the
+path that target expects:
+
+    python3 build/validate_targets.py
+
 Or run the canonical local CI gate:
 
     python3 build/ci.py
@@ -229,9 +240,43 @@ To switch agents, pass another agent package path or an alias from `agents/regis
 
 The launcher deploys the selected agent into `<workspace-root>/.kiro/` and launches `kiro-cli chat --agent <name>` from that workspace root, because kiro-cli loads agent config from the workspace `.kiro/agents/` directory.
 
-Secondary target: Claude Code
+Secondary target: native Claude Code
 
     python3 build/assemble.py --target claude-code
+
+The `claude-code` target emits a native Claude Code project layout — a thin
+root `CLAUDE.md` (the assembled system prompt plus `@`-imports), modular
+`.claude/rules/*.md` for the eager context tiers, `.claude/skills/`,
+`.claude/sops/`, a `.claude/agents/agent-x.md` that `claude --agent agent-x`
+discovers by its frontmatter `name`, and `.claude/settings.json`. To make
+Claude Code load Agent X in this workspace:
+
+    python3 build/deploy.py --target claude-code
+    claude --agent agent-x
+
+The Claude deploy is *scoped*: it owns a fixed set of paths **wholesale** —
+`CLAUDE.md`, `.mcp.json`, `.claude/rules/`, `.claude/skills/`, `.claude/sops/`,
+`.claude/agents/`, `.claude/settings.json`, `.claude/hooks.json`. Every deploy
+`rmtree`s and regenerates those, and they are gitignored — do not hand-edit
+them or drop your own files inside them (a hand-written
+`.claude/agents/my-helper.md` is silently lost on the next deploy). Everything
+else under `.claude/` (`settings.local.json`, `commands/`, anything you add
+outside the owned subpaths) is left untouched. Personalize a fork through
+`agent.manifest.json` and `context/`, not by hand-editing the generated files.
+
+Where each target expects what:
+
+| Concept | kiro-cli | Claude Code |
+|---|---|---|
+| System prompt | `.kiro/steering/00-system.md` | `CLAUDE.md` (thin — prompt + `@`-imports) |
+| Eager context | `.kiro/steering/<tier>-*.md` | `.claude/rules/<tier>-*.md` (imported by `CLAUDE.md`) |
+| Skills | `.kiro/skills/<name>/` | `.claude/skills/<name>/` |
+| SOPs | `.kiro/sops/` | `.claude/sops/` |
+| Agent | `.kiro/agents/<name>.json` | `.claude/agents/<name>.md` |
+| Subagents | `.kiro/agents/<sub>.json` | `.claude/agents/<sub>.md` |
+| MCP | `.kiro/settings/mcp.json` | `.mcp.json` |
+| Hooks / settings | agent-config `hooks` block (not emitted) | `.claude/settings.json`, `.claude/hooks.json` (neutral list) |
+| Default agent | `--agent` flag | `--agent` flag, or `.claude/settings.json` `{"agent": …}` |
 
 Portable fallback target:
 

@@ -130,17 +130,48 @@ def assert_trees_byte_identical(a: Path, b: Path) -> None:
 # --- claude-code target ---
 
 
-def test_claude_code_target_writes_claude_md_with_prompt_and_eager_tiers(tmp_path):
+def test_claude_code_target_writes_thin_claude_md_with_prompt_and_rule_imports(tmp_path):
     out_dir = tmp_path / "out"
 
     result = run_assemble("--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
     claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    # prompt half still present
     assert IDENTITY_MARKER in claude_md
     assert DOMAIN_MARKER in claude_md
-    assert ROUTING_MARKER in claude_md
-    assert claude_md.index(IDENTITY_MARKER) < claude_md.index(ROUTING_MARKER)
+    assert claude_md.index(IDENTITY_MARKER) < claude_md.index(DOMAIN_MARKER)
+    # eager tiers are NO LONGER inlined — they are imported
+    assert ROUTING_MARKER not in claude_md
+    assert GUARDRAIL_MARKER not in claude_md
+    assert "@.claude/rules/routing-00-core.md" in claude_md
+    assert "@.claude/rules/guardrails-no-fabrication.md" in claude_md
+
+
+def test_claude_code_target_emits_one_rule_file_per_eager_context_file(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    routing = (out_dir / ".claude" / "rules" / "routing-00-core.md").read_text(encoding="utf-8")
+    assert ROUTING_MARKER in routing
+    assert "<!-- context/routing/00-core.md -->" in routing
+    guardrail = (out_dir / ".claude" / "rules" / "guardrails-no-fabrication.md").read_text(encoding="utf-8")
+    assert GUARDRAIL_MARKER in guardrail
+
+
+def test_claude_code_target_claude_md_import_list_is_sorted_and_complete(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    imports = [line[len("@.claude/rules/"):] for line in claude_md.splitlines()
+               if line.startswith("@.claude/rules/")]
+    rule_files = sorted(p.name for p in (out_dir / ".claude" / "rules").glob("*.md"))
+    assert imports == rule_files
 
 
 def test_claude_code_target_writes_mcp_json(tmp_path):
@@ -163,9 +194,14 @@ def test_claude_code_target_copies_declared_skill_dir(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    copied = out_dir / ".claude" / "skills" / "example-skill" / "SKILL.md"
-    original = pkg / "skills" / "example-skill" / "SKILL.md"
-    assert copied.read_text(encoding="utf-8") == original.read_text(encoding="utf-8")
+    copied = (out_dir / ".claude" / "skills" / "example-skill" / "SKILL.md").read_text(encoding="utf-8")
+    original = (pkg / "skills" / "example-skill" / "SKILL.md").read_text(encoding="utf-8")
+    # the copy is verbatim except that source citations are rewritten to the
+    # target's emitted .claude/ locations
+    assert "# Example Skill Template" in copied
+    assert ".claude/sops/wire-new-capability.sop.md" in copied
+    assert "sops/wire-new-capability.sop.md" in original
+    assert "sops/wire-new-capability.sop.md" not in copied.replace(".claude/sops/wire-new-capability.sop.md", "")
 
 
 def test_claude_code_target_copies_declared_sops(tmp_path):
@@ -176,8 +212,9 @@ def test_claude_code_target_copies_declared_sops(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    copied = out_dir / "sops" / "example-sop.sop.md"
+    copied = out_dir / ".claude" / "sops" / "example-sop.sop.md"
     assert copied.read_text(encoding="utf-8") == "# Example SOP\n\nDo the thing.\n"
+    assert not (out_dir / "sops").exists()
 
 
 def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
@@ -189,6 +226,7 @@ def test_claude_code_target_omits_hooks_json_when_no_hooks(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
+    assert not (out_dir / ".claude" / "hooks.json").exists()
     assert not (out_dir / "hooks.json").exists()
 
 
@@ -202,10 +240,52 @@ def test_claude_code_target_writes_hooks_json_when_hooks_exist(tmp_path):
     result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
 
     assert result.returncode == 0
-    hooks = json.loads((out_dir / "hooks.json").read_text(encoding="utf-8"))
+    hooks = json.loads((out_dir / ".claude" / "hooks.json").read_text(encoding="utf-8"))
     assert {json.dumps(hook, sort_keys=True) for hook in hooks} >= {
         json.dumps({"event": "SessionStart", "command": "true"}, sort_keys=True)
     }
+
+
+def test_claude_code_target_rewrites_skill_citations_to_emitted_paths(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    skill_md = (out_dir / ".claude" / "skills" / "demo-skill" / "SKILL.md").read_text(encoding="utf-8")
+    # demo-skill/SKILL.md cites context/guardrails/... and sops/wire-new-capability.sop.md
+    assert ".claude/rules/guardrails-confirm-before-execute.md" in skill_md
+    assert ".claude/sops/wire-new-capability.sop.md" in skill_md
+    assert "context/guardrails/confirm-before-execute.md" not in skill_md
+    assert "sops/wire-new-capability.sop.md" not in skill_md.replace(".claude/sops/wire-new-capability.sop.md", "")
+    # a non-mapped path is left alone
+    assert "tool/toolkit/toolkit.py" in skill_md
+
+
+def test_claude_code_target_copies_bundled_skill_files(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    bundled = out_dir / ".claude" / "skills" / "escalation-handoff" / "templates" / "handoff.md"
+    assert bundled.is_file()
+
+
+def test_claude_code_target_rewrites_sop_citations(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sop = (out_dir / ".claude" / "sops" / "wire-new-capability.sop.md").read_text(encoding="utf-8")
+    # wire-new-capability.sop.md cites sops/adversarial-review.sop.md — a real
+    # on-disk SOP, in the citation map — so it must be rewritten under .claude/.
+    assert ".claude/sops/adversarial-review.sop.md" in sop
+    # the bare token only survives as the tail of the rewritten path
+    assert "sops/adversarial-review.sop.md" not in sop.replace(".claude/sops/adversarial-review.sop.md", "")
+    # a non-mapped context/ path is left untouched verbatim
+    assert "context/scripts/validate-wiring.py" in sop
 
 
 def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):
@@ -217,6 +297,241 @@ def test_claude_code_target_missing_declared_skill_is_hard_error(tmp_path):
 
     assert result.returncode != 0
     assert "nonexistent-skill" in result.stderr
+
+
+def test_claude_code_target_emits_primary_agent_file_discoverable_by_name(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    agent = (out_dir / ".claude" / "agents" / "agent-x.md").read_text(encoding="utf-8")
+    assert agent.startswith("---\n")
+    assert "\nname: agent-x\n" in agent
+    assert "description:" in agent
+    # body carries the assembled system prompt
+    assert IDENTITY_MARKER in agent
+    assert DOMAIN_MARKER in agent
+
+
+def test_claude_code_target_primary_agent_filename_follows_manifest_name(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, name="agent-x-mish")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    assert (out_dir / ".claude" / "agents" / "agent-x-mish.md").is_file()
+    assert not (out_dir / ".claude" / "agents" / "agent-x.md").exists()
+    agent = (out_dir / ".claude" / "agents" / "agent-x-mish.md").read_text(encoding="utf-8")
+    assert "\nname: agent-x-mish\n" in agent
+
+
+def test_claude_code_target_missing_name_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    manifest_path = pkg / "agent.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["name"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "name" in result.stderr
+
+
+def test_claude_code_target_settings_json_is_empty_by_default(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {}
+
+
+def test_claude_code_target_settings_json_sets_default_agent_when_manifest_opts_in(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, claudeSettings={"defaultAgent": True})
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {"agent": "agent-x"}
+
+
+def test_claude_code_target_default_agent_uses_renamed_manifest_name(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, name="agent-x-mish", claudeSettings={"defaultAgent": True})
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    settings = json.loads((out_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert settings == {"agent": "agent-x-mish"}
+
+
+def test_claude_code_target_emits_declared_subagent_as_markdown(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    assert "\nname: readonly-investigator\n" in sub
+    assert "description:" in sub
+    # body carries the subagent's own system prompt — assert a distinctive
+    # phrase from context/prompts/readonly-investigator.md so this verifies
+    # _subagent_body actually resolved systemPromptIncludes (not just frontmatter)
+    assert "try to DISPROVE it — at most 3 disproof attempts" in sub
+
+
+def test_claude_code_target_subagent_tools_exclude_write_verbs(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    tools_line = next(line for line in sub.splitlines() if line.startswith("tools:"))
+    for verb in ("write", "edit", "delete", "create", "update", "patch"):
+        assert verb not in tools_line.lower()
+    # kiro `read` is mapped to Claude's vocabulary (FIX 3)
+    assert "Read" in tools_line
+
+
+def test_claude_code_target_subagent_tools_are_claude_tool_names(tmp_path):
+    """The shipped readonly-investigator has allowedTools:["read"] — under
+    Claude that must emit the mapped Claude tool names, not the kiro word."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "readonly-investigator.md").read_text(encoding="utf-8")
+    tools_line = next(line for line in sub.splitlines() if line.startswith("tools:"))
+    assert tools_line == "tools: Read, Glob, Grep"
+
+
+def test_claude_code_target_subagent_allowedtools_write_verb_is_filtered_not_readmitted(tmp_path):
+    """A subagent whose tools ∩ allowedTools is empty must NOT fall back to
+    allowedTools verbatim (the old bug) — write verbs in allowedTools are
+    still dropped. Here the filtered set is empty, so no tools: line at all."""
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "gap-probe.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "gap-probe",
+        "description": "probe",
+        "systemPromptIncludes": [],
+        "tools": ["read"],
+        "allowedTools": ["write", "edit"],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["gap-probe"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "gap-probe.md").read_text(encoding="utf-8")
+    tools_lines = [l for l in sub.splitlines() if l.startswith("tools:")]
+    assert tools_lines == []
+
+
+def test_claude_code_target_subagent_allowedtools_partial_write_verbs_dropped(tmp_path):
+    """allowedTools mixing a keeper and a write verb: only the write verb is
+    dropped; the keeper is mapped to Claude names. No unfiltered fallback."""
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "gap-probe2.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "gap-probe2",
+        "description": "probe",
+        "systemPromptIncludes": [],
+        "tools": ["shell"],
+        "allowedTools": ["read", "write"],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["gap-probe2"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "gap-probe2.md").read_text(encoding="utf-8")
+    tools_line = next(l for l in sub.splitlines() if l.startswith("tools:"))
+    assert tools_line == "tools: Read, Glob, Grep"
+
+
+def test_claude_code_target_subagent_empty_allowedtools_emits_no_tools_line(tmp_path):
+    pkg = copy_package(tmp_path)
+    spec_path = pkg / "agents" / "no-allow.agent.json"
+    spec_path.write_text(json.dumps({
+        "schemaVersion": "1",
+        "name": "no-allow",
+        "description": "x",
+        "systemPromptIncludes": [],
+        "tools": ["read", "shell"],
+        "allowedTools": [],
+    }), encoding="utf-8")
+    set_manifest(pkg, subagentNames=["no-allow"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = (out_dir / ".claude" / "agents" / "no-allow.md").read_text(encoding="utf-8")
+    assert [l for l in sub.splitlines() if l.startswith("tools:")] == []
+
+
+def test_claude_code_target_rewrites_citations_in_claude_md_and_agent_file(tmp_path):
+    """CLAUDE.md and the primary agent body carry the assembled prompt, whose
+    identity partial cites context/guardrails/* and context/routing/00-core.md.
+    Those must be rewritten to their emitted .claude/rules/ paths (FIX 2)."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    claude_md = (out_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    agent_md = (out_dir / ".claude" / "agents" / "agent-x.md").read_text(encoding="utf-8")
+    for text in (claude_md, agent_md):
+        assert ".claude/rules/guardrails-no-fabrication.md" in text
+        assert ".claude/rules/routing-00-core.md" in text
+        # the bare source token only survives as the tail of the rewritten path
+        assert "context/guardrails/no-fabrication.md" not in text
+        assert "context/routing/00-core.md" not in text
+
+
+def test_claude_code_target_rule_body_citations_rewritten_but_provenance_comment_literal(tmp_path):
+    """emit_claude_rules rewrites the rule BODY through the citation map, but
+    keeps the leading `<!-- context/<rel> -->` provenance comment literal."""
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    nofab = (out_dir / ".claude" / "rules" / "guardrails-no-fabrication.md").read_text(encoding="utf-8")
+    # provenance comment: exact source form
+    assert nofab.splitlines()[0] == "<!-- context/guardrails/no-fabrication.md -->"
+    # body cross-references rewritten
+    assert ".claude/rules/routing-00-core.md" in nofab
+    assert ".claude/rules/knowledge-domain-glossary.md" in nofab
+
+
+def test_claude_code_target_missing_subagent_agent_json_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, subagentNames=["nonexistent-subagent"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "claude-code", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "nonexistent-subagent" in result.stderr
 
 
 # --- kiro-cli target ---
@@ -385,6 +700,44 @@ def test_kiro_cli_target_agent_config_missing_name_is_hard_error(tmp_path):
 
     assert result.returncode != 0
     assert "name" in result.stderr
+
+
+def test_kiro_cli_target_emits_declared_subagent_config(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    sub = json.loads((out_dir / "agents" / "readonly-investigator.json").read_text(encoding="utf-8"))
+    assert sub["name"] == "readonly-investigator"
+    assert sub["includeMcpJson"] is True
+    assert sub["allowedTools"] == ["read"]
+    assert sub["shellAllowedCommands"]  # preserved from the source spec
+
+
+def test_kiro_cli_target_primary_agent_config_unchanged_by_subagent_emission(tmp_path):
+    out_dir = tmp_path / "out"
+
+    result = run_assemble("--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode == 0
+    config = json.loads((out_dir / "agents" / "agent-x.json").read_text(encoding="utf-8"))
+    assert config["name"] == "agent-x"
+    assert config["resources"] == [
+        "file://.kiro/steering/**/*.md",
+        "skill://.kiro/skills/*/SKILL.md",
+    ]
+
+
+def test_kiro_cli_target_missing_subagent_agent_json_is_hard_error(tmp_path):
+    pkg = copy_package(tmp_path)
+    set_manifest(pkg, subagentNames=["nonexistent-subagent"])
+    out_dir = tmp_path / "out"
+
+    result = run_assemble_at(pkg, "--target", "kiro-cli", "--out", str(out_dir))
+
+    assert result.returncode != 0
+    assert "nonexistent-subagent" in result.stderr
 
 
 # --- generic target additions ---

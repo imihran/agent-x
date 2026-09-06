@@ -1,8 +1,9 @@
 # Agent X Project Progress
 
-Last updated: 2026-09-05, after adding the lazy-footprint capability-shape
-flow (P9 + rebuild-spec §8.7 + wire-new-capability SOP step 2) and
-verifying it live in `agent-x-mish`.
+Last updated: 2026-09-06, after the native target split — `claude-code` now
+emits a native Claude Code project layout (thin `CLAUDE.md` + `.claude/`),
+subagents are emitted for both targets, and `build/validate_targets.py`
+checks the emitted output per target.
 
 **New agent/session picking this up: read `docs/onboarding.md` first** — it's
 the "how development works here" guide (conventions, gotchas, the core dev
@@ -365,6 +366,78 @@ the two shortest of those (`51b81b1`). Second probe: all eight points
 landed from the deployed SOP alone, agent citing "per the SOP, step 2" —
 never needed to open the spec.
 
+### Native target split — Kiro primary, Claude Code native secondary (2026-09-06)
+
+Design: `docs/superpowers/specs/2026-09-06-native-target-split-design.md`.
+Landed on branch `reorg-test`.
+
+**Why.** `target_claude_code` was emitting a Kiro-shaped hybrid, not a
+native Claude Code project: `CLAUDE.md` was one flat blob (prompt + every
+eager tier appended inline), SOPs and `hooks.json` landed at the repo root
+rather than under `.claude/`, there was no `.claude/agents/` file for
+`claude --agent agent-x` to discover, no `.claude/settings.json`, no
+modular `.claude/rules/`, and declared subagents
+(`agents/readonly-investigator.agent.json`) were emitted to neither target.
+The source-tree wiring validator never inspected emitted output, so "a
+declared capability wasn't emitted into a target" was undetectable.
+
+**What changed (code, merged before this docs pass — HEAD `8fda21c`):**
+
+- `build/assemble.py` `target_claude_code`: thin root `CLAUDE.md`
+  (assembled prompt + `\n---\n` + `<!-- Always-on project context … -->` +
+  sorted `@.claude/rules/<name>` import lines), `.claude/rules/<tier>-<file>.md`
+  (one per eager context file, provenance comment kept),
+  `.claude/agents/<manifest.name>.md` (frontmatter `name:` — the
+  `claude --agent` discovery contract — + json-quoted `description:`, body =
+  assembled prompt), `.claude/agents/<subagent>.md` per `subagentNames`
+  (`tools:` narrowed to non-write ∩ `allowedTools`), `.claude/settings.json`
+  (always emitted; `{"agent": "<name>"}` iff `claudeSettings.defaultAgent`,
+  else `{}`), `.claude/skills/` and `.claude/sops/` with `context/…` / `sops/…`
+  citations rewritten to `.claude/…`, `.mcp.json`, and `.claude/hooks.json`
+  (neutral aggregated list, only when real hook files exist).
+- `build/assemble.py` `target_kiro_cli`: additionally emits
+  `.kiro/agents/<subagent>.json` per `subagentNames`; the primary
+  `agent-x.json` is byte-unchanged.
+- `build/target_paths.py` (new): `rule_filename`, `build_citation_map`,
+  `rewrite_citations` — the single citation-rewrite map for the Claude target.
+- `build/validate_targets.py` (new): assembles each target into a temp dir
+  and asserts every declared capability lands at its target's expected path;
+  `claude --agent` discovery = frontmatter `name:` match. Direct run prints
+  `TARGET VALIDATION: PASS`.
+- `build/ci.py`: the three `assembler smoke: {claude-code,kiro-cli,generic}`
+  stages became `assembler smoke: generic` + `target-aware validation`.
+- `build/deploy.py`: `--target {kiro-cli,claude-code}`, default `kiro-cli`.
+  Claude mode is **surgical** — removes/rewrites only its own
+  `CLAUDE_MAPPINGS` paths (root `CLAUDE.md` / `.mcp.json`; `.claude/rules`,
+  `.claude/skills`, `.claude/sops`, `.claude/agents`, `.claude/settings.json`,
+  `.claude/hooks.json`) and never `rmtree`s `.claude/`. `--json` gains a
+  `"target"` key.
+- `agent.manifest.json` gained `"claudeSettings": { "defaultAgent": false }`.
+- `.gitignore` gained 8 entries for the Claude artifacts a `--workspace-root .`
+  deploy would generate into the repo tree.
+
+**Mapping gaps** (recorded verbatim in `docs/spec/rebuild-spec.md` §13.7):
+`shellAllowedCommands` has no Claude subagent-file equivalent (read-only
+rests on `tools:` scoping; Kiro keeps the allowlist); `.claude/hooks.json`
+is a neutral list, NOT translated to Claude's native `settings.json`
+matcher/event schema, so it will not auto-run (follow-up); `tool/toolkit/`
+is emitted into no target (works in dev only because the workspace root is
+the repo); `welcomeMessage` is dropped for the Claude target.
+
+**Docs updated this pass:** `README.md` (Build targets reframe + per-target
+table + mermaid + architecture tree), `docs/spec/rebuild-spec.md` (§13.2
+table, §13.3 `assemble.py` listing refreshed verbatim, §13.5 hooks note,
+§13.6 "Claude Code native layout", §13.7 "Mapping gaps", §17.4 `ci.py`
+listing), `docs/onboarding.md` (§4 new modules, §6 surgical deploy +
+manifest-name coupling, §7 target validator), `docs/sync-workflow.md`
+(`claudeSettings` additive-field note), this file, and a one-line
+correction to the design doc's §5/§7 to include `.claude/sops`.
+
+**Verified:** `python3 build/ci.py` → `CI GATE: PASS — all stages green`
+(150 tests); `python3 build/validate_targets.py` →
+`TARGET VALIDATION: PASS`; `python3 guards/check-cli-references.py` →
+`CLI REFERENCES: AGREE`.
+
 ## Current verification status
 
 Latest verified 2026-09-05 on `main`, against the real installed `kiro-cli`
@@ -425,12 +498,19 @@ needed for the CI gate itself.
 
 ## Next task
 
-No active development task right now — the kiro-cli migration, the
-welcome-message/README/sync-tooling additions, and the `agent-x-mish` fork
-are all done, live-verified, committed, and pushed.
+No active development task right now. The native target split (code +
+docs) is done on `reorg-test`; merge it to `main` once reviewed.
 
-The only outstanding item, carried over unchanged from before all of the
-above, is still Task 14b:
+**Fork port (`agent-x-mish`), once merged** — per the design doc's
+"Rollout / fork port": `python3 build/sync_template.py`; resolve the
+`agent.manifest.json` conflict (keep fork `name` / `welcomeMessage` /
+identity, take `claudeSettings`); re-run the manifest-name test-coupling
+grep-and-fix for the new hard-coded `agent-x` frontmatter assertion in
+`tests/test_assemble.py` (`tests/test_validate_targets.py` reads the name
+from the manifest, so it needs no edit); `python3 build/ci.py` green; then
+`python3 build/deploy.py --target claude-code && claude --agent agent-x-mish`.
+
+The other outstanding item, carried over unchanged, is still Task 14b:
 
 Finish Task 14b when GitHub auth has `workflow` scope:
 - Add `.github/workflows/validate.yml` as the vendor binding around `python3 build/ci.py`.

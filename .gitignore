@@ -6,3 +6,11 @@ local/
 __pycache__/
 *.pyc
 .pytest_cache/
+/CLAUDE.md
+/.mcp.json
+/.claude/rules/
+/.claude/skills/
+/.claude/sops/
+/.claude/agents/
+/.claude/hooks.json
+/.claude/settings.json
